@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"flag"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	entryStore "entry_storage"
@@ -41,7 +43,20 @@ func jsonHandler(next http.Handler) http.HandlerFunc {
 func main() {
 	var mux = http.DefaultServeMux
 
-	var db, err = sql.Open("mysql", "root:@/dash3")
+	var (
+		driverName string
+		dataSource string
+	)
+	flag.StringVar(&driverName, "driver", "mysql", "database driver to use. see github.com/rubenv/sql-migrate for details.")
+	flag.StringVar(&dataSource, "datasource", "", "datasource to be used with the database driver. mysql/pg REVDSN")
+	flag.Parse()
+
+	if dataSource == "" {
+		log.Fatalf("missing data source! please re-run with --help for details")
+		os.Exit(1)
+	}
+
+	var db, err = sql.Open(driverName, dataSource)
 	if err != nil {
 		log.Panicf("failed to connect to database")
 	}
