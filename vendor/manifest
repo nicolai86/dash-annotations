@@ -14,12 +14,6 @@
 			"branch": "master"
 		},
 		{
-			"importpath": "github.com/rubenv/sql-migrate",
-			"repository": "https://github.com/rubenv/sql-migrate",
-			"revision": "53184e1edfb4f9655b0fa8dd2c23e7763f452bda",
-			"branch": "master"
-		},
-		{
 			"importpath": "github.com/russross/blackfriday",
 			"repository": "https://github.com/russross/blackfriday",
 			"revision": "386ef80f18233ea97960e855a54382ec446c6637",

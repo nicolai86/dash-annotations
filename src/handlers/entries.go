@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"io/ioutil"
 	"log"
@@ -11,18 +12,36 @@ import (
 	"text/template"
 
 	entryStore "entry_storage"
-	teamStore "team_storage"
 	userStore "user_storage"
 	voteStore "vote_storage"
 
 	"dash"
 )
 
+func findTeamMembershipsForUser(db *sql.DB, u dash.User) ([]dash.TeamMember, error) {
+	var rows, err = db.Query(`SELECT t.id, t.name, tm.role FROM team_user AS tm INNER JOIN teams AS t ON t.id = tm.team_id WHERE tm.user_id = ?`, u.ID)
+	defer rows.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	var memberships = make([]dash.TeamMember, 0)
+	for rows.Next() {
+		var membership = dash.TeamMember{}
+		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
+			return nil, err
+		}
+		memberships = append(memberships, membership)
+	}
+
+	return memberships, nil
+}
+
 type EntriesHandler struct {
 	UserStorage  userStore.Storage
 	EntryStorage entryStore.Storage
-	TeamStorage  teamStore.Storage
 	VoteStorage  voteStore.Storage
+	DB           *sql.DB
 }
 
 type entriesListRequest struct {
@@ -41,7 +60,7 @@ func (eh *EntriesHandler) list(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		u2 = nil
 	} else {
-		var teams, _ = eh.TeamStorage.FindTeamMembershipsForUser(u)
+		var teams, _ = findTeamMembershipsForUser(eh.DB, u)
 		u.TeamMemberships = teams
 	}
 	var dec = json.NewDecoder(req.Body)
@@ -247,7 +266,7 @@ func (eh *EntriesHandler) get(w http.ResponseWriter, req *http.Request) {
 	}
 	var u, _ = getUserFromSession(eh.UserStorage, req)
 	var vote, _ = eh.VoteStorage.FindVoteByEntryAndUser(entry, u)
-	var teams, _ = eh.TeamStorage.FindTeamMembershipsForUser(u)
+	var teams, _ = findTeamMembershipsForUser(eh.DB, u)
 	u.TeamMemberships = teams
 	var resp = entryGetResponse{
 		Status:          "success",
@@ -394,7 +413,7 @@ func (eh *EntriesHandler) removeFromTeams(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	var teams, _ = eh.TeamStorage.FindTeamMembershipsForUser(u)
+	var teams, _ = findTeamMembershipsForUser(eh.DB, u)
 	u.TeamMemberships = teams
 
 	var isTeamModerator = false

@@ -11,7 +11,6 @@ import (
 	"golang.org/x/net/context"
 
 	entryStore "entry_storage"
-	teamStore "team_storage"
 	userStore "user_storage"
 	voteStore "vote_storage"
 
@@ -75,11 +74,11 @@ func main() {
 
 	var userStorage = userStore.New(db)
 	var entryStorage = entryStore.New(db)
-	var teamStorage = teamStore.New(db)
 	var voteStorage = voteStore.New(db)
 
 	// var entry, _ = entryStorage.FindByID(7)
 	// fmt.Printf("%q", decorateBodyRendered(entry.BodyRendered))
+	var rootContext = handlers.NewRootContext(db)
 
 	mux.Handle("/users/", http.StripPrefix("/users/", http.Handler(&handlers.UsersHandler{
 		UserStorage: userStorage,
@@ -87,13 +86,42 @@ func main() {
 	mux.Handle("/entries/", http.StripPrefix("/entries/", http.Handler(&handlers.EntriesHandler{
 		UserStorage:  userStorage,
 		EntryStorage: entryStorage,
-		TeamStorage:  teamStorage,
+		DB:           db,
 		VoteStorage:  voteStorage,
 	})))
-	mux.Handle("/teams/", http.StripPrefix("/teams/", http.Handler(&handlers.TeamsHandler{
-		UserStorage: userStorage,
-		TeamStorage: teamStorage,
-	})))
+
+	mux.Handle("/teams/list", http.StripPrefix("/teams/list", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamsList)),
+	}))
+	mux.Handle("/teams/create", http.StripPrefix("/teams/create", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamCreate)),
+	}))
+	mux.Handle("/teams/join", http.StripPrefix("/teams/join", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamJoin))),
+	}))
+	mux.Handle("/teams/leave", http.StripPrefix("/teams/leave", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamLeave))),
+	}))
+	mux.Handle("/teams/set_role", http.StripPrefix("/teams/set_role", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetRole))),
+	}))
+	mux.Handle("/teams/remove_member", http.StripPrefix("/teams/remove_member", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamRemoveMember))),
+	}))
+	mux.Handle("/teams/set_access_key", http.StripPrefix("/teams/set_access_key", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetAccessKey))),
+	}))
+	mux.Handle("/teams/list_members", http.StripPrefix("/teams/list_members", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamListMember))),
+	}))
 
 	var listen = ":8000"
 	log.Printf("Listening on %q", listen)
