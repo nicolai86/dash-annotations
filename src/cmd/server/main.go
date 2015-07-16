@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/net/context"
+
 	entryStore "entry_storage"
 	teamStore "team_storage"
 	userStore "user_storage"
@@ -40,6 +42,15 @@ func jsonHandler(next http.Handler) http.HandlerFunc {
 	}
 }
 
+type ContextAdapter struct {
+	ctx     context.Context
+	handler handlers.ContextHandler
+}
+
+func (ca *ContextAdapter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	ca.handler.ServeHTTPContext(ca.ctx, rw, req)
+}
+
 func main() {
 	var mux = http.DefaultServeMux
 
@@ -60,6 +71,8 @@ func main() {
 	if err != nil {
 		log.Panicf("failed to connect to database")
 	}
+	defer db.Close()
+
 	var userStorage = userStore.New(db)
 	var entryStorage = entryStore.New(db)
 	var teamStorage = teamStore.New(db)

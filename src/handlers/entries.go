@@ -162,7 +162,7 @@ type entryGetResponse struct {
 	GlobalModerator bool   `json:"global_moderator"`
 }
 
-type context struct {
+type decoratedContext struct {
 	Entry dash.Entry
 	User  dash.User
 	Vote  dash.Vote
@@ -220,7 +220,7 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 		log.Panic(err)
 	}
 	var tmp = bytes.Buffer{}
-	var c = context{
+	var c = decoratedContext{
 		Entry: entry,
 		User:  user,
 		Vote:  vote,
