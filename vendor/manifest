@@ -32,6 +32,13 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "golang.org/x/net/context",
+			"repository": "https://go.googlesource.com/net",
+			"revision": "d9558e5c97f85372afee28cf2b6059d7d3818919",
+			"branch": "master",
+			"path": "/context"
+		},
+		{
 			"importpath": "gopkg.in/gorp.v1",
 			"repository": "https://gopkg.in/gorp.v1",
 			"revision": "c87af80f3cc5036b55b83d77171e156791085e2e",
