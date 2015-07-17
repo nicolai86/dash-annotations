@@ -10,10 +10,6 @@ import (
 
 	"golang.org/x/net/context"
 
-	entryStore "entry_storage"
-	userStore "user_storage"
-	voteStore "vote_storage"
-
 	"handlers"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -74,10 +70,6 @@ func main() {
 	}
 	defer db.Close()
 
-	var userStorage = userStore.New(db)
-	var entryStorage = entryStore.New(db)
-	var voteStorage = voteStore.New(db)
-
 	var rootContext = handlers.NewRootContext(db)
 
 	mux.Handle("/users/register", http.StripPrefix("/users/register", &ContextAdapter{
@@ -103,12 +95,38 @@ func main() {
 	// TODO(rr) add support for password forgotten requests /users/forgot/request
 	// TODO(rr) add support for password reset requests /users/forgot/reset
 
-	mux.Handle("/entries/", http.StripPrefix("/entries/", http.Handler(&handlers.EntriesHandler{
-		UserStorage:  userStorage,
-		EntryStorage: entryStorage,
-		DB:           db,
-		VoteStorage:  voteStorage,
-	})))
+	mux.Handle("/entries/list", http.StripPrefix("/entries/list", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.MaybeAuthenticated(handlers.ContextHandlerFunc(handlers.EntriesList)),
+	}))
+	mux.Handle("/entries/save", http.StripPrefix("/entries/save", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
+	}))
+	mux.Handle("/entries/create", http.StripPrefix("/entries/create", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
+	}))
+	mux.Handle("/entries/get", http.StripPrefix("/entries/get", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.MaybeAuthenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryGet))),
+	}))
+	mux.Handle("/entries/vote", http.StripPrefix("/entries/vote", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryVote))),
+	}))
+	mux.Handle("/entries/delete", http.StripPrefix("/entries/delete", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryDelete))),
+	}))
+	mux.Handle("/entries/remove_from_public", http.StripPrefix("/entries/remove_from_public", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromPublic))),
+	}))
+	mux.Handle("/entries/remove_from_teams", http.StripPrefix("/entries/remove_from_teams", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromTeams))),
+	}))
 
 	mux.Handle("/teams/list", http.StripPrefix("/teams/list", &ContextAdapter{
 		ctx:     rootContext,

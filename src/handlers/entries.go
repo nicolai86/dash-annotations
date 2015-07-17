@@ -11,6 +11,8 @@ import (
 	"strings"
 	"text/template"
 
+	"golang.org/x/net/context"
+
 	entryStore "entry_storage"
 	userStore "user_storage"
 	voteStore "vote_storage"
@@ -54,22 +56,31 @@ type entriesListResponse struct {
 	TeamEntries   []dash.Entry `json:"team_entries,omitempty"`
 }
 
-func (eh *EntriesHandler) list(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
-	var u2 *dash.User = &u
-	if err != nil {
-		u2 = nil
-	} else {
-		var teams, _ = findTeamMembershipsForUser(eh.DB, u)
-		u.TeamMemberships = teams
+func EntriesList(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user *dash.User = nil
+	if ctx.Value(UserKey) != nil {
+		user = ctx.Value(UserKey).(*dash.User)
 	}
+
+	if user != nil {
+		var teams, _ = findTeamMembershipsForUser(db, *user)
+		user.TeamMemberships = teams
+	}
+
 	var dec = json.NewDecoder(req.Body)
 	var listReq entriesListRequest
 	dec.Decode(&listReq)
 	var enc = json.NewEncoder(w)
-	var public, _ = eh.EntryStorage.FindPublicByIdentifier(listReq.Identifier, u2)
-	var own, _ = eh.EntryStorage.FindOwnByIdentifier(listReq.Identifier, u2)
-	var team, _ = eh.EntryStorage.FindByTeamAndIdentifier(listReq.Identifier, u)
+
+	var entryStorage = entryStore.New(db)
+	var public, _ = entryStorage.FindPublicByIdentifier(listReq.Identifier, user)
+	var own, _ = entryStorage.FindOwnByIdentifier(listReq.Identifier, user)
+	var team []dash.Entry = nil
+	if user != nil {
+		team, _ = entryStorage.FindByTeamAndIdentifier(listReq.Identifier, *user)
+	}
+	// TODO remove from public which are in team
 
 	var resp = entriesListResponse{
 		Status:        "success",
@@ -97,22 +108,15 @@ type entrySaveResponse struct {
 	Entry  dash.Entry `json:"entry"`
 }
 
-func (eh *EntriesHandler) save(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
-
+func EntriesSave(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 	var enc = json.NewEncoder(w)
-	if err != nil {
-		log.Printf("not logged in.")
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
-
 	var dec = json.NewDecoder(req.Body)
 	var payload entrySaveRequest
 	dec.Decode(&payload)
+
+	var entryStorage = entryStore.New(db)
 
 	var entry = dash.Entry{
 		ID:         payload.EntryID,
@@ -124,7 +128,7 @@ func (eh *EntriesHandler) save(w http.ResponseWriter, req *http.Request) {
 		Anchor:     payload.Anchor,
 		Teams:      payload.Teams,
 	}
-	if err := eh.EntryStorage.Store(&entry, u); err != nil {
+	if err := entryStorage.Store(&entry, *user); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 
 		switch err {
@@ -158,11 +162,12 @@ func (eh *EntriesHandler) save(w http.ResponseWriter, req *http.Request) {
 
 	var vote = dash.Vote{
 		EntryID: entry.ID,
-		UserID:  u.ID,
+		UserID:  user.ID,
 		Type:    dash.VoteUp,
 	}
-	eh.VoteStorage.Upsert(&vote)
-	eh.EntryStorage.UpdateScore(&entry)
+	var voteStorage = voteStore.New(db)
+	voteStorage.Upsert(&vote)
+	entryStorage.UpdateScore(&entry)
 
 	var resp = entrySaveResponse{
 		Entry:  entry,
@@ -250,28 +255,23 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 	return string(dd)
 }
 
-func (eh *EntriesHandler) get(w http.ResponseWriter, req *http.Request) {
-	var dec = json.NewDecoder(req.Body)
-	var payload entryGetRequest
-	dec.Decode(&payload)
-	var enc = json.NewEncoder(w)
-	var entry, err = eh.EntryStorage.FindByID(payload.EntryID)
-	if err != nil {
-		log.Printf("Unknown Entry! %v", err)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Oops. Unknown error",
-		})
-		return
+func EntryGet(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = dash.User{}
+	if ctx.Value(UserKey) != nil {
+		user = dash.User(*ctx.Value(UserKey).(*dash.User))
 	}
-	var u, _ = getUserFromSession(eh.UserStorage, req)
-	var vote, _ = eh.VoteStorage.FindVoteByEntryAndUser(entry, u)
-	var teams, _ = findTeamMembershipsForUser(eh.DB, u)
-	u.TeamMemberships = teams
+
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var enc = json.NewEncoder(w)
+	var voteStorage = voteStore.New(db)
+	var vote, _ = voteStorage.FindVoteByEntryAndUser(*entry, user)
+	var teams, _ = findTeamMembershipsForUser(db, user)
+	user.TeamMemberships = teams
 	var resp = entryGetResponse{
 		Status:          "success",
 		Body:            entry.Body,
-		BodyRendered:    decorateBodyRendered(entry, u, vote),
+		BodyRendered:    decorateBodyRendered(*entry, user, vote),
 		GlobalModerator: false,
 	}
 	enc.Encode(resp)
@@ -282,56 +282,40 @@ type voteRequest struct {
 	EntryID  int `json:"entry_id"`
 }
 
-func (eh *EntriesHandler) vote(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
-	var enc = json.NewEncoder(w)
-	if err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
+func EntryVote(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 
+	var enc = json.NewEncoder(w)
 	var payload voteRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	var entry dash.Entry
-	entry, err = eh.EntryStorage.FindByID(payload.EntryID)
-	if err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
-
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var entryStorage = entryStore.New(db)
 	var vote dash.Vote
-	vote, _ = eh.VoteStorage.FindVoteByEntryAndUser(entry, u)
+	var voteStorage = voteStore.New(db)
+	vote, _ = voteStorage.FindVoteByEntryAndUser(*entry, *user)
 	vote.Type = payload.VoteType
-	eh.VoteStorage.Upsert(&vote)
-	eh.EntryStorage.UpdateScore(&entry)
+	voteStorage.Upsert(&vote)
+	entryStorage.UpdateScore(entry)
+	enc.Encode(map[string]string{
+		"status": "success",
+	})
 }
 
-func (eh *EntriesHandler) delete(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
-	var enc = json.NewEncoder(w)
-	if err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
+func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 
+	var enc = json.NewEncoder(w)
 	var payload entryGetRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	var entry dash.Entry
-	entry, err = eh.EntryStorage.FindByID(payload.EntryID)
-	if err != nil {
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var entryStorage = entryStore.New(db)
+	if entry.UserID != user.ID {
 		enc.Encode(map[string]string{
 			"status":  "error",
 			"message": "Error. Logout and try again",
@@ -339,49 +323,26 @@ func (eh *EntriesHandler) delete(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if entry.UserID != u.ID {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
-
-	eh.EntryStorage.Delete(&entry)
+	entryStorage.Delete(entry)
 
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
 }
 
-func (eh *EntriesHandler) removeFromPublic(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
-	var enc = json.NewEncoder(w)
-	if err != nil || !u.Moderator {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
+func EntryRemoveFromPublic(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 
+	var enc = json.NewEncoder(w)
 	var payload entryGetRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	var entry dash.Entry
-	entry, err = eh.EntryStorage.FindByID(payload.EntryID)
-	if err != nil {
-		log.Printf("unable to find entry")
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
-
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var entryStorage = entryStore.New(db)
 	entry.RemovedFromPublic = true
-	if err := eh.EntryStorage.Store(&entry, u); err != nil {
+	if err := entryStorage.Store(entry, *user); err != nil {
 		log.Printf("fuck: %v", err)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -395,34 +356,28 @@ func (eh *EntriesHandler) removeFromPublic(w http.ResponseWriter, req *http.Requ
 	})
 }
 
-func (eh *EntriesHandler) removeFromTeams(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(eh.UserStorage, req)
+func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
+
 	var enc = json.NewEncoder(w)
 	var payload entryGetRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	var entry dash.Entry
-	entry, err = eh.EntryStorage.FindByID(payload.EntryID)
-	if err != nil {
-		log.Printf("unable to find entry")
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
-
-	var teams, _ = findTeamMembershipsForUser(eh.DB, u)
-	u.TeamMemberships = teams
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var entryStorage = entryStore.New(db)
+	var teams, _ = findTeamMembershipsForUser(db, *user)
+	user.TeamMemberships = teams
 
 	var isTeamModerator = false
-	for _, membership := range u.TeamMemberships {
+	for _, membership := range user.TeamMemberships {
 		for _, team := range entry.Teams {
 			isTeamModerator = isTeamModerator ||
 				(team == membership.TeamName && (membership.Role == "owner" || membership.Role == "moderator"))
 		}
 	}
+	var err error
 	if err != nil || !isTeamModerator {
 		log.Printf("You are no team moderator")
 		enc.Encode(map[string]string{
@@ -432,7 +387,7 @@ func (eh *EntriesHandler) removeFromTeams(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	if err := eh.EntryStorage.RemoveFromTeams(entry, u); err != nil {
+	if err := entryStorage.RemoveFromTeams(*entry, *user); err != nil {
 		log.Printf("error removing from teams: %v", err)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -444,27 +399,4 @@ func (eh *EntriesHandler) removeFromTeams(w http.ResponseWriter, req *http.Reque
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
-}
-
-func (eh *EntriesHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	switch req.URL.Path {
-	case "list":
-		eh.list(w, req)
-	case "save":
-		eh.save(w, req)
-	case "create":
-		eh.save(w, req)
-	case "get":
-		eh.get(w, req)
-	case "vote":
-		eh.vote(w, req)
-	case "delete":
-		eh.delete(w, req)
-	case "remove_from_public":
-		eh.removeFromPublic(w, req)
-	case "remove_from_teams":
-		eh.removeFromTeams(w, req)
-	default:
-		log.Printf("Unknown entries route: %v", req.URL.Path)
-	}
 }
