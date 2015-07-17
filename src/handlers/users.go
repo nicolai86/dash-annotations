@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math/rand"
 	"net/http"
 	"time"
@@ -12,22 +13,28 @@ import (
 	"dash"
 )
 
-func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+var (
+	// ErrUsernameExists is returned for registration attempts where the username is taken
+	ErrUsernameExists = errors.New("A user with this username already exists")
+	// ErrInvalidLogin is returned if the login request fails, either because the username or password is wrong
+	ErrInvalidLogin = errors.New("Login failed: invalid username or password")
+	// ErrEmailExists is returned when a user wants to change his email to an already taken email address
+	ErrEmailExists = errors.New("A user with this email already exists")
+)
+
+type registerRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 
-	var dec = json.NewDecoder(req.Body)
-	var payload loginRequest
-	dec.Decode(&payload)
-
-	var enc = json.NewEncoder(w)
+	var payload registerRequest
+	json.NewDecoder(req.Body).Decode(&payload)
 
 	if _, err := findUserByUsername(db, payload.Username); err == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Username already taken",
-		})
-		return
+		return ErrUsernameExists
 	}
 
 	var u = dash.User{
@@ -35,26 +42,14 @@ func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request
 	}
 	u.ChangePassword(payload.Password)
 
-	var res, err = db.Exec(`INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now())
-	if err != nil {
-		return
+	if _, err := db.Exec(`INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now()); err != nil {
+		return err
 	}
-	var userID int64
-	userID, err = res.LastInsertId()
-	if err != nil {
-		return
-	}
-	u.ID = int(userID)
 
-	w.WriteHeader(http.StatusOK)
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
-}
-
-type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	return nil
 }
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
@@ -67,44 +62,33 @@ func randSeq(n int) string {
 	return string(b)
 }
 
-func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 
-	var dec = json.NewDecoder(req.Body)
 	var payload loginRequest
-	dec.Decode(&payload)
+	json.NewDecoder(req.Body).Decode(&payload)
 
-	var enc = json.NewEncoder(w)
-	var u, err = findUserByUsername(db, payload.Username)
+	var user, err = findUserByUsername(db, payload.Username)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Invalid username or password",
-		})
-		return
+		return ErrInvalidLogin
 	}
 
-	if !u.PasswordsMatch(payload.Password) {
-		w.WriteHeader(http.StatusBadRequest)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Invalid username or password",
-		})
-		return
+	if !user.PasswordsMatch(payload.Password) {
+		return ErrInvalidLogin
 	}
 
-	u.RememberToken = sql.NullString{
+	user.RememberToken = sql.NullString{
 		String: randSeq(32),
 		Valid:  true,
 	}
 
-	if _, err := db.Exec(`UPDATE users SET remember_token = ? WHERE id = ?`, u.RememberToken, u.ID); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		enc.Encode(map[string]string{
-			"status": "error",
-		})
-		return
+	if _, err := db.Exec(`UPDATE users SET remember_token = ? WHERE id = ?`, user.RememberToken, user.ID); err != nil {
+		return err
 	}
 
 	var ckie *http.Cookie
@@ -118,11 +102,11 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	if ckie == nil {
 		ckie = &http.Cookie{
 			Name:  "laravel_session",
-			Value: u.RememberToken.String,
+			Value: user.RememberToken.String,
 		}
 	}
 
-	ckie.Value = u.RememberToken.String
+	ckie.Value = user.RememberToken.String
 	ckie.MaxAge = 7200
 	ckie.Expires = time.Now().Add(7200 * time.Second)
 	ckie.Path = "/"
@@ -133,13 +117,14 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	var data = map[string]string{
 		"status": "success",
 	}
-	if u.Email.String != "" {
-		data["email"] = u.Email.String
+	if user.Email.String != "" {
+		data["email"] = user.Email.String
 	}
-	enc.Encode(data)
+	json.NewEncoder(w).Encode(data)
+	return nil
 }
 
-func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
@@ -153,64 +138,62 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 		Valid: true,
 	}
 
-	db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID)
+	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
+		return err
+	}
 
-	var enc = json.NewEncoder(w)
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
 type changePasswordRequest struct {
 	Password string `json:"password"`
 }
 
-func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
 	var payload changePasswordRequest
-	var dec = json.NewDecoder(req.Body)
-	dec.Decode(&payload)
+	json.NewDecoder(req.Body).Decode(&payload)
 
 	user.ChangePassword(payload.Password)
-	db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID)
+	if _, err := db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID); err != nil {
+		return err
+	}
 
-	var enc = json.NewEncoder(w)
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
 type changeEmailRequest struct {
 	Email string `json:"email"`
 }
 
-func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var enc = json.NewEncoder(w)
-
 	var payload changeEmailRequest
-	var dec = json.NewDecoder(req.Body)
-	dec.Decode(&payload)
+	json.NewDecoder(req.Body).Decode(&payload)
 
 	var existingUserID = -1
 	db.QueryRow(`SELECT id FROM users WHERE email = ?`, payload.Email).Scan(&existingUserID)
 	if existingUserID != -1 {
-		w.WriteHeader(http.StatusUnauthorized)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Email already used",
-		})
-		return
+		return ErrEmailExists
 	}
 
 	user.Email = sql.NullString{String: payload.Email, Valid: true}
-	db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID)
+	if _, err := db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID); err != nil {
+		return err
+	}
 
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }

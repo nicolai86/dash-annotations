@@ -14,7 +14,27 @@ import (
 	"dash"
 )
 
-type teamListResponse struct {
+var (
+	// ErrInvalidAccessKey is returned from a join request handler when the given access key
+	// does not match the teams access key
+	ErrInvalidAccessKey = errors.New("Invalid access key")
+	// ErrMissingRoleParameter is returned from a set_role handler when no role parameter is present
+	ErrMissingRoleParameter = errors.New("Missing parameter: role")
+	// ErrInvalidRoleParameter is returned from the set_role handler when the role is unknown
+	ErrInvalidRoleParameter = errors.New("Invalid parameter: role. Must either be member or moderator")
+	// ErrMissingUsernameParameter is returned when a target username parameter is required, but missing
+	ErrMissingUsernameParameter = errors.New("Missing parameter: username")
+	// ErrNotTeamOwner is returned when an action requires you to be the team owner, but you are not
+	ErrNotTeamOwner = errors.New("You need to be the teams owner")
+	// ErrUnknownUser is returned when an action requires a target user, but the given username is unknown
+	ErrUnknownUser = errors.New("Invalid parameter: username. Unknown user")
+	// ErrTeamNameExists is returned when a team should be created, and the name is already taken
+	ErrTeamNameExists = errors.New("A team with this name already exists")
+	// ErrTeamNameMissing is returned when a team should be created and the name parameter is missing
+	ErrTeamNameMissing = errors.New("Missing parameter: name")
+)
+
+type tListResponse struct {
 	Status string            `json:"status"`
 	Teams  []dash.TeamMember `json:"teams,omitempty"`
 }
@@ -28,137 +48,99 @@ const teamListQuery = `
 	INNER JOIN teams AS t ON t.id = tm.team_id
 	WHERE tm.user_id = ?`
 
-func TeamsList(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func TeamsList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var enc = json.NewEncoder(w)
-
 	var rows, err = db.Query(teamListQuery, user.ID)
-	defer rows.Close()
 	if err != nil {
-		// TODO
-		return
+		return err
 	}
+	defer rows.Close()
 
 	var memberships = make([]dash.TeamMember, 0)
 	for rows.Next() {
 		var membership = dash.TeamMember{}
 		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
-			// TODO
-			return
+			return err
 		}
 		memberships = append(memberships, membership)
 	}
 
-	var resp = teamListResponse{
+	var resp = tListResponse{
 		Status: "success",
 		Teams:  memberships,
 	}
-	enc.Encode(resp)
+	json.NewEncoder(w).Encode(resp)
+	return nil
 }
 
-func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var enc = json.NewEncoder(w)
-	var dec = json.NewDecoder(req.Body)
-
 	var payload map[string]interface{}
-	dec.Decode(&payload)
+	json.NewDecoder(req.Body).Decode(&payload)
 
 	var team = dash.Team{
 		Name: payload["name"].(string),
 	}
-
-	var err = (func() error {
-		if team.Name == "" {
-			return ErrNameMissing
-		}
-
-		var isNewTeam = team.ID == 0
-		if isNewTeam {
-			var cnt = 0
-			var err = db.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
-			if err != nil {
-				return err
-			}
-			if cnt != 0 {
-				return ErrNameExists
-			}
-			var ins, insErr = db.Exec(`INSERT INTO teams (name, created_at, updated_at) VALUES (?, ?, ?)`, team.Name, time.Now(), time.Now())
-			var teamID int64
-			teamID, _ = ins.LastInsertId()
-			team.ID = int(teamID)
-
-			return insErr
-		}
-
-		db.Exec(`UPDATE teams SET access_key = ? WHERE id = ?`, team.EncryptedAccessKey, team.ID)
-		return nil
-	})()
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		switch err {
-		case ErrNameExists:
-			enc.Encode(map[string]string{
-				"status":  "error",
-				"message": "Team name already taken",
-			})
-		case ErrNameMissing:
-			enc.Encode(map[string]string{
-				"status":  "error",
-				"message": "Missing name property",
-			})
-		default:
-			enc.Encode(map[string]string{
-				"status": "error",
-			})
-		}
-		return
+	if team.Name == "" {
+		return ErrTeamNameMissing
 	}
 
-	db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "owner")
+	var cnt = 0
+	var err = db.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
+	if err != nil {
+		return err
+	}
+	if cnt != 0 {
+		return ErrTeamNameExists
+	}
 
-	enc.Encode(map[string]string{
+	if _, err := db.Exec(`INSERT INTO teams (name, access_key, created_at, updated_at) VALUES (?, ?, ?)`, team.Name, "", time.Now(), time.Now()); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "owner"); err != nil {
+		return err
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-func TeamJoin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+type joinRequest struct {
+	AccessKey string `json:"access_key"`
+}
+
+func TeamJoin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var team = ctx.Value(TeamKey).(*dash.Team)
 
-	var enc = json.NewEncoder(w)
 	var dec = json.NewDecoder(req.Body)
 
-	var payload map[string]interface{}
+	var payload joinRequest
 	dec.Decode(&payload)
 
-	if !team.AccessKeysMatch(payload["access_key"].(string)) {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Invalid access key",
-		})
-		return
+	if !team.AccessKeysMatch(payload.AccessKey) {
+		return errors.New("Invalid access key")
 	}
 
 	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "member"); err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "You are already a member of this team"})
-		return
+		return err
 	}
 
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var team = ctx.Value(TeamKey).(*dash.Team)
@@ -167,6 +149,7 @@ func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 
 	var _, err = db.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, user.ID)
 	if err != nil {
+		return err
 	}
 
 	var entryIDs = make([]interface{}, 0)
@@ -176,242 +159,218 @@ func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	for rows.Next() {
 		var entryID int
 		if err := rows.Scan(&entryID); err != nil {
-			// TODO
-			return
+			return err
 		}
 		entryIDs = append(entryIDs, entryID)
 	}
 
 	params := append([]interface{}{user.ID}, entryIDs...)
 	var query = fmt.Sprintf(`DELETE FROM votes WHERE user_id = ? AND entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, params...)
+	if _, err := db.Exec(query, params...); err != nil {
+		return err
+	}
 
 	query = fmt.Sprintf(`DELETE FROM entry_team WHERE entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, entryIDs...)
+	if _, err := db.Exec(query, entryIDs...); err != nil {
+		return err
+	}
 
 	query = fmt.Sprintf(`DELETE FROM entries WHERE id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, entryIDs...)
+	if _, err := db.Exec(query, entryIDs...); err != nil {
+		return err
+	}
 
 	var membershipCount = -1
 	db.QueryRow(`SELECT count(*) from team_user WHERE team_id = ?`, team.ID).Scan(&membershipCount)
 	if membershipCount == 0 {
-		db.Exec(`DELETE FROM teams WHERE id = ?`, team.ID)
+		if _, err := db.Exec(`DELETE FROM teams WHERE id = ?`, team.ID); err != nil {
+			return err
+		}
 	}
 
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+type setRoleRequest struct {
+	Role     string `json:"role"`
+	Username string `json:"username"`
+}
+
+func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
-
-	var enc = json.NewEncoder(w)
-	var dec = json.NewDecoder(req.Body)
-
-	var payload map[string]interface{}
-	dec.Decode(&payload)
-
 	var team = ctx.Value(TeamKey).(*dash.Team)
 
-	var role = payload["role"].(string)
-	var username = payload["username"].(string)
-
-	if role == "" || username == "" {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Missing Role | Username",
-		})
-		return
-	}
-
 	if team.OwnerID != user.ID {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Need to be owner.",
-		})
+		return ErrNotTeamOwner
 	}
 
-	var target dash.User
-	var err error
-	target, err = findUserByUsername(db, username)
+	var dec = json.NewDecoder(req.Body)
+
+	var payload setRoleRequest
+	dec.Decode(&payload)
+
+	if payload.Role == "" {
+		return ErrMissingRoleParameter
+	}
+	if payload.Role != "member" && payload.Role != "moderator" {
+		return ErrInvalidRoleParameter
+	}
+	if payload.Username == "" {
+		return ErrMissingUsernameParameter
+	}
+	var target, err = findUserByUsername(db, payload.Username)
 	if err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Unknown user",
-		})
-		return
+		return ErrUnknownUser
 	}
 
-	db.Exec(`UPDATE team_user SET role = ? WHERE team_id = ? AND user_id = ?`, role, team.ID, target.ID)
+	if _, err := db.Exec(`UPDATE team_user SET role = ? WHERE team_id = ? AND user_id = ?`, payload.Role, team.ID, target.ID); err != nil {
+		return err
+	}
 
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+type removeMemberRequest struct {
+	Username string `json:"username"`
+}
+
+func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var team = ctx.Value(TeamKey).(*dash.Team)
 
-	var enc = json.NewEncoder(w)
-	var dec = json.NewDecoder(req.Body)
-
-	var payload map[string]interface{}
-	dec.Decode(&payload)
-
-	var username = payload["username"].(string)
-	if username == "" {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Missing Role | Username",
-		})
-		return
-	}
-
 	if team.OwnerID != user.ID {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Need to be owner.",
-		})
+		return ErrNotTeamOwner
 	}
 
-	var target dash.User
-	var err error
-	target, err = findUserByUsername(db, username)
+	var payload removeMemberRequest
+	json.NewDecoder(req.Body).Decode(&payload)
+
+	if payload.Username == "" {
+		return ErrMissingUsernameParameter
+	}
+
+	var target, err = findUserByUsername(db, payload.Username)
 	if err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Unknown user",
-		})
-		return
+		return ErrUnknownUser
 	}
 
 	if _, err := db.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, target.ID); err != nil {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Unknown user",
-		})
-		return
+		return err
 	}
 
 	var entryIDs = make([]interface{}, 0)
 	var rows *sql.Rows
 	rows, err = db.Query(`SELECT e.id FROM entries e INNER JOIN entry_team et ON et.entry_id = e.id AND et.team_id = ? WHERE e.user_id = ?`, team.ID, target.ID)
 	defer rows.Close()
+	if err != nil {
+		return err
+	}
 	for rows.Next() {
 		var entryID int
 		if err := rows.Scan(&entryID); err != nil {
-			// TODO
-			return
+			return err
 		}
 		entryIDs = append(entryIDs, entryID)
 	}
 
 	params := append([]interface{}{target.ID}, entryIDs...)
 	var query = fmt.Sprintf(`DELETE FROM votes WHERE user_id = ? AND entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, params...)
+	if _, err := db.Exec(query, params...); err != nil {
+		return err
+	}
 
 	query = fmt.Sprintf(`DELETE FROM entry_team WHERE entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, entryIDs...)
+	if _, err := db.Exec(query, entryIDs...); err != nil {
+		return err
+	}
 
 	query = fmt.Sprintf(`DELETE FROM entries WHERE id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	db.Exec(query, entryIDs...)
+	if _, err := db.Exec(query, entryIDs...); err != nil {
+		return err
+	}
 
-	enc.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-var (
-	ErrNameExists  = errors.New("the team name already exists")
-	ErrNameMissing = errors.New("the team name is missing")
-)
+type setAccessKeyRequest struct {
+	AccessKey string `json:"access_key"`
+}
 
-func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var team = ctx.Value(TeamKey).(*dash.Team)
 
-	var enc = json.NewEncoder(w)
-	var dec = json.NewDecoder(req.Body)
-
-	var payload map[string]interface{}
-	dec.Decode(&payload)
-
 	if team.OwnerID != user.ID {
-		enc.Encode(map[string]string{
-			"status": "error",
-		})
+		return ErrNotTeamOwner
 	}
 
-	team.ChangeAccessKey(payload["access_key"].(string))
+	var enc = json.NewEncoder(w)
+
+	var payload setAccessKeyRequest
+	json.NewDecoder(req.Body).Decode(&payload)
+
+	team.ChangeAccessKey(payload.AccessKey)
+
 	if _, err := db.Exec(`UPDATE teams SET access_key = ? WHERE id = ?`, team.EncryptedAccessKey, team.ID); err != nil {
-		enc.Encode(map[string]string{
-			"status": "error",
-		})
-		return
+		return err
 	}
 
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
+	return nil
 }
 
-type teamMembershipsResponse struct {
+type listMembersResponse struct {
 	Status       string            `json:"status"`
 	Members      []dash.Membership `json:"members"`
 	HasAccessKey bool              `json:"has_access_key"`
 }
 
-func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var team = ctx.Value(TeamKey).(*dash.Team)
 
-	var enc = json.NewEncoder(w)
-	var dec = json.NewDecoder(req.Body)
+	if team.OwnerID != user.ID {
+		return ErrNotTeamOwner
+	}
 
 	var payload map[string]interface{}
-	dec.Decode(&payload)
+	json.NewDecoder(req.Body).Decode(&payload)
 
-	if team.OwnerID != user.ID {
-		enc.Encode(map[string]string{
-			"status": "error",
-		})
-		return
-	}
-
-	var rows *sql.Rows
-	var err error
-	rows, err = db.Query(`SELECT tm.role, u.username FROM team_user AS tm INNER JOIN users AS u ON u.id = tm.user_id WHERE tm.team_id = ?`, team.ID)
-	defer rows.Close()
+	var rows, err = db.Query(`SELECT tm.role, u.username FROM team_user AS tm INNER JOIN users AS u ON u.id = tm.user_id WHERE tm.team_id = ?`, team.ID)
 	if err != nil {
-		return
+		return err
 	}
+	defer rows.Close()
 
 	var memberships = make([]dash.Membership, 0)
 	for rows.Next() {
 		var membership = dash.Membership{}
 		if err := rows.Scan(&membership.Role, &membership.Username); err != nil {
-			return
+			return err
 		}
 		memberships = append(memberships, membership)
 	}
 
-	if err != nil {
-		enc.Encode(map[string]string{
-			"status": "error",
-		})
-		return
-	}
-
-	var resp = teamMembershipsResponse{
+	var resp = listMembersResponse{
 		Status:       "success",
 		Members:      memberships,
 		HasAccessKey: team.EncryptedAccessKey != "",
 	}
-	enc.Encode(resp)
+	json.NewEncoder(w).Encode(resp)
+	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -43,7 +44,14 @@ type ContextAdapter struct {
 }
 
 func (ca *ContextAdapter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	ca.handler.ServeHTTPContext(ca.ctx, rw, req)
+	if err := ca.handler.ServeHTTPContext(ca.ctx, rw, req); err != nil {
+		var enc = json.NewEncoder(rw)
+		rw.WriteHeader(http.StatusBadRequest)
+		enc.Encode(map[string]string{
+			"status":  "error",
+			"message": err.Error(),
+		})
+	}
 }
 
 func main() {
