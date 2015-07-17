@@ -8,27 +8,21 @@ import (
 	"net/http"
 	"time"
 
-	userStore "user_storage"
+	"golang.org/x/net/context"
 
 	"dash"
 )
 
-type UsersHandler struct {
-	UserStorage userStore.Storage
-}
+func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
 
-func (ux *UsersHandler) isValidRegistrationAttempt(l loginRequest) bool {
-	var _, err = ux.UserStorage.FindByUsername(l.Username)
-	return err != nil
-}
-
-func (ux *UsersHandler) register(w http.ResponseWriter, req *http.Request) {
 	var dec = json.NewDecoder(req.Body)
 	var payload loginRequest
 	dec.Decode(&payload)
 
 	var enc = json.NewEncoder(w)
-	if !ux.isValidRegistrationAttempt(payload) {
+
+	if _, err := FindUserByUsername(db, payload.Username); err == nil {
 		log.Printf("bad register request: %#v", payload)
 		w.WriteHeader(http.StatusBadRequest)
 		enc.Encode(map[string]string{
@@ -42,7 +36,19 @@ func (ux *UsersHandler) register(w http.ResponseWriter, req *http.Request) {
 		Username: payload.Username,
 	}
 	u.ChangePassword(payload.Password)
-	ux.UserStorage.Store(&u)
+
+	var res, err = db.Exec(`INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now())
+	if err != nil {
+		log.Printf("err: %v", err)
+		return
+	}
+	var userID int64
+	userID, err = res.LastInsertId()
+	if err != nil {
+		log.Printf("err: %v", err)
+		return
+	}
+	u.ID = int(userID)
 
 	log.Printf("registration successful")
 	w.WriteHeader(http.StatusOK)
@@ -66,14 +72,16 @@ func randSeq(n int) string {
 	return string(b)
 }
 
-func (ux *UsersHandler) login(w http.ResponseWriter, req *http.Request) {
+func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+
 	var dec = json.NewDecoder(req.Body)
 	var payload loginRequest
 	dec.Decode(&payload)
 
 	var enc = json.NewEncoder(w)
-	if _, err := ux.UserStorage.FindByUsername(payload.Username); err != nil {
-		log.Printf("bad login request: %#v, %#v", payload, err)
+	var u, err = FindUserByUsername(db, payload.Username)
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -82,10 +90,7 @@ func (ux *UsersHandler) login(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var u, _ = ux.UserStorage.FindByUsername(payload.Username)
-	log.Printf("%#v", u)
 	if !u.PasswordsMatch(payload.Password) {
-		log.Printf("bad login request: %#v", payload)
 		w.WriteHeader(http.StatusBadRequest)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -99,7 +104,7 @@ func (ux *UsersHandler) login(w http.ResponseWriter, req *http.Request) {
 		Valid:  true,
 	}
 
-	if e := ux.UserStorage.Update(&u); e != nil {
+	if _, err := db.Exec(`UPDATE users SET remember_token = ? WHERE id = ?`, u.RememberToken, u.ID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		log.Printf("unable to create session")
 		enc.Encode(map[string]string{
@@ -141,13 +146,9 @@ func (ux *UsersHandler) login(w http.ResponseWriter, req *http.Request) {
 	enc.Encode(data)
 }
 
-func (ux *UsersHandler) logout(w http.ResponseWriter, req *http.Request) {
-	var sessionID = ""
-	for _, cookie := range req.Cookies() {
-		if cookie.Name == "laravel_session" {
-			sessionID = cookie.Value
-		}
-	}
+func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:   "laravel_session",
@@ -155,22 +156,14 @@ func (ux *UsersHandler) logout(w http.ResponseWriter, req *http.Request) {
 		MaxAge: -1,
 	})
 
-	var enc = json.NewEncoder(w)
-	if sessionID == "" {
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Not logged in",
-		})
-		return
-	}
-
-	var u, _ = ux.UserStorage.FindByRememberToken(sessionID)
-	u.RememberToken = sql.NullString{
+	user.RememberToken = sql.NullString{
 		Valid: true,
 	}
-	ux.UserStorage.Update(&u)
+
+	db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID)
 	log.Printf("logout successful")
 
+	var enc = json.NewEncoder(w)
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
@@ -180,25 +173,18 @@ type changePasswordRequest struct {
 	Password string `json:"password"`
 }
 
-func (ux *UsersHandler) changePassword(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(ux.UserStorage, req)
-	var enc = json.NewEncoder(w)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
+func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
 
 	var payload changePasswordRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	u.ChangePassword(payload.Password)
-	ux.UserStorage.Update(&u)
+	user.ChangePassword(payload.Password)
+	db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID)
 
+	var enc = json.NewEncoder(w)
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
@@ -208,24 +194,19 @@ type changeEmailRequest struct {
 	Email string `json:"email"`
 }
 
-func (ux *UsersHandler) changeEmail(w http.ResponseWriter, req *http.Request) {
-	var u, err = getUserFromSession(ux.UserStorage, req)
+func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
+
 	var enc = json.NewEncoder(w)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		enc.Encode(map[string]string{
-			"status":  "error",
-			"message": "Error. Logout and try again",
-		})
-		return
-	}
 
 	var payload changeEmailRequest
 	var dec = json.NewDecoder(req.Body)
 	dec.Decode(&payload)
 
-	var _, err2 = ux.UserStorage.FindByEmail(payload.Email)
-	if err2 == nil {
+	var existingUserID = -1
+	db.QueryRow(`SELECT id FROM users WHERE email = ?`, payload.Email).Scan(&existingUserID)
+	if existingUserID != -1 {
 		w.WriteHeader(http.StatusUnauthorized)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -234,31 +215,10 @@ func (ux *UsersHandler) changeEmail(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	u.Email = sql.NullString{String: payload.Email, Valid: true}
-	ux.UserStorage.Update(&u)
+	user.Email = sql.NullString{String: payload.Email, Valid: true}
+	db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID)
 
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
-}
-
-func (ux *UsersHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	switch req.URL.Path {
-	case "register":
-		ux.register(w, req)
-	case "login":
-		ux.login(w, req)
-	case "logout":
-		ux.logout(w, req)
-	case "password":
-		ux.changePassword(w, req)
-	case "email":
-		ux.changeEmail(w, req)
-	case "forgot/request":
-		log.Printf("forgot/request not implemented")
-	case "forgot/reset":
-		log.Printf("forgot/reset not implemented")
-	default:
-		log.Printf("Unknown users route: %v", req.URL.Path)
-	}
 }

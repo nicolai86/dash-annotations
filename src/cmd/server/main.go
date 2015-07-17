@@ -76,13 +76,31 @@ func main() {
 	var entryStorage = entryStore.New(db)
 	var voteStorage = voteStore.New(db)
 
-	// var entry, _ = entryStorage.FindByID(7)
-	// fmt.Printf("%q", decorateBodyRendered(entry.BodyRendered))
 	var rootContext = handlers.NewRootContext(db)
 
-	mux.Handle("/users/", http.StripPrefix("/users/", http.Handler(&handlers.UsersHandler{
-		UserStorage: userStorage,
-	})))
+	mux.Handle("/users/register", http.StripPrefix("/users/register", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.ContextHandlerFunc(handlers.UsersRegister),
+	}))
+	mux.Handle("/users/login", http.StripPrefix("/users/login", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.ContextHandlerFunc(handlers.UserLogin),
+	}))
+	mux.Handle("/users/logout", http.StripPrefix("/users/logout", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserLogout)),
+	}))
+	mux.Handle("/users/password", http.StripPrefix("/users/password", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangePassword)),
+	}))
+	mux.Handle("/users/email", http.StripPrefix("/users/email", &ContextAdapter{
+		ctx:     rootContext,
+		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangeEmail)),
+	}))
+	// TODO(rr) add support for password forgotten requests /users/forgot/request
+	// TODO(rr) add support for password reset requests /users/forgot/reset
+
 	mux.Handle("/entries/", http.StripPrefix("/entries/", http.Handler(&handlers.EntriesHandler{
 		UserStorage:  userStorage,
 		EntryStorage: entryStorage,
