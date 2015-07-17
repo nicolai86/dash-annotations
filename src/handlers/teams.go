@@ -307,10 +307,15 @@ func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Requ
 	return nil
 }
 
+type membership struct {
+	Role     string `json:"role"`
+	Username string `json:"name"`
+}
+
 type listMembersResponse struct {
-	Status       string            `json:"status"`
-	Members      []dash.Membership `json:"members"`
-	HasAccessKey bool              `json:"has_access_key"`
+	Status       string       `json:"status"`
+	Members      []membership `json:"members"`
+	HasAccessKey bool         `json:"has_access_key"`
 }
 
 func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
@@ -331,9 +336,9 @@ func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Reques
 	}
 	defer rows.Close()
 
-	var memberships = make([]dash.Membership, 0)
+	var memberships = make([]membership, 0)
 	for rows.Next() {
-		var membership = dash.Membership{}
+		var membership = membership{}
 		if err := rows.Scan(&membership.Role, &membership.Username); err != nil {
 			return err
 		}

@@ -32,8 +32,3 @@ type TeamMember struct {
 	Role     string `json:"role"`
 	UserID   int    `json:"-"`
 }
-
-type Membership struct {
-	Role     string `json:"role"`
-	Username string `json:"name"`
-}
