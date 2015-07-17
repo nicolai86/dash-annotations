@@ -73,7 +73,34 @@ func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 		Name: payload["name"].(string),
 	}
 
-	if err := storeTeam(db, &team); err != nil {
+	var err = (func() error {
+		if team.Name == "" {
+			return ErrNameMissing
+		}
+
+		var isNewTeam = team.ID == 0
+		if isNewTeam {
+			var cnt = 0
+			var err = db.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
+			if err != nil {
+				return err
+			}
+			if cnt != 0 {
+				return ErrNameExists
+			}
+			var ins, insErr = db.Exec(`INSERT INTO teams (name, created_at, updated_at) VALUES (?, ?, ?)`, team.Name, time.Now(), time.Now())
+			var teamID int64
+			teamID, _ = ins.LastInsertId()
+			team.ID = int(teamID)
+
+			return insErr
+		}
+
+		db.Exec(`UPDATE teams SET access_key = ? WHERE id = ?`, team.EncryptedAccessKey, team.ID)
+		return nil
+	})()
+
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		switch err {
 		case ErrNameExists:
@@ -306,33 +333,6 @@ var (
 	ErrNameMissing = errors.New("the team name is missing")
 )
 
-func storeTeam(db *sql.DB, team *dash.Team) error {
-	if team.Name == "" {
-		return ErrNameMissing
-	}
-
-	var isNewTeam = team.ID == 0
-	if isNewTeam {
-		var cnt = 0
-		var err = db.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
-		if err != nil {
-			return err
-		}
-		if cnt != 0 {
-			return ErrNameExists
-		}
-		var ins, insErr = db.Exec(`INSERT INTO teams (name, created_at, updated_at) VALUES (?, ?, ?)`, team.Name, time.Now(), time.Now())
-		var teamID int64
-		teamID, _ = ins.LastInsertId()
-		team.ID = int(teamID)
-
-		return insErr
-	}
-
-	db.Exec(`UPDATE teams SET access_key = ? WHERE id = ?`, team.EncryptedAccessKey, team.ID)
-	return nil
-}
-
 func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -351,7 +351,7 @@ func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Requ
 	}
 
 	team.ChangeAccessKey(payload["access_key"].(string))
-	if err := storeTeam(db, team); err != nil {
+	if _, err := db.Exec(`UPDATE teams SET access_key = ? WHERE id = ?`, team.EncryptedAccessKey, team.ID); err != nil {
 		enc.Encode(map[string]string{
 			"status": "error",
 		})

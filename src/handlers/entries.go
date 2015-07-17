@@ -444,21 +444,6 @@ func (eh *EntriesHandler) removeFromTeams(w http.ResponseWriter, req *http.Reque
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
-	//                $entry_teams = $entry->teams()->get();
-	//                foreach($entry_teams as $team)
-	//                {
-	//                    $check = $team->users()->where('user_id', '=', $user->id)->first();
-	//                    if($check)
-	//                    {
-	//                        $role = $check->pivot->role;
-	//                        if($role && ($role == 'owner' || $role == 'moderator'))
-	//                        {
-	//                            $team->pivot->removed_from_team = true;
-	//                            $team->pivot->save();
-	//                        }
-	//                    }
-	//                }
-	//                return json_encode(['status' => 'success']);
 }
 
 func (eh *EntriesHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
