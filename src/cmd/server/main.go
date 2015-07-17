@@ -56,9 +56,11 @@ func main() {
 	var (
 		driverName string
 		dataSource string
+		listen     string
 	)
 	flag.StringVar(&driverName, "driver", "mysql", "database driver to use. see github.com/rubenv/sql-migrate for details.")
 	flag.StringVar(&dataSource, "datasource", "", "datasource to be used with the database driver. mysql/pg REVDSN")
+	flag.StringVar(&listen, "listen", ":8000", "interface & port to listen on")
 	flag.Parse()
 
 	if dataSource == "" {
@@ -141,7 +143,6 @@ func main() {
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamListMember))),
 	}))
 
-	var listen = ":8000"
 	log.Printf("Listening on %q", listen)
 	http.ListenAndServe(listen, logHandler(jsonHandler(mux)))
 }
