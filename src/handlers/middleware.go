@@ -163,11 +163,32 @@ func WithTeam(h ContextHandler) ContextHandler {
 }
 
 func findUserByUsername(db *sql.DB, username string) (dash.User, error) {
-	var user = dash.User{
-		Username: username,
+	return findUserByCondition(db, `username = ?`, username)
+}
+
+func findUserByCondition(db *sql.DB, cond string, param interface{}) (dash.User, error) {
+	var user = dash.User{}
+	if err := db.QueryRow(`SELECT id, username, email, password, remember_token, moderator FROM users WHERE `+cond, param).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator); err != nil {
+		return user, err
 	}
-	var err = db.QueryRow(`SELECT id, email, password, remember_token, moderator FROM users WHERE username = ?`, username).Scan(&user.ID, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator)
-	return user, err
+
+	var rows, err = db.Query(`SELECT t.id, t.name, tm.role FROM team_user AS tm INNER JOIN teams AS t ON t.id = tm.team_id WHERE tm.user_id = ?`, user.ID)
+	if err != nil {
+		return user, err
+	}
+	defer rows.Close()
+
+	var memberships = make([]dash.TeamMember, 0)
+	for rows.Next() {
+		var membership = dash.TeamMember{}
+		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
+			return user, err
+		}
+		memberships = append(memberships, membership)
+	}
+
+	user.TeamMemberships = memberships
+	return user, nil
 }
 
 // Authenticated is a middleware that checks for authentication in the request
@@ -177,7 +198,6 @@ func Authenticated(h ContextHandler) ContextHandler {
 	return ContextHandlerFunc(func(ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
 		var db = ctx.Value(DBKey).(*sql.DB)
 
-		var user = dash.User{}
 		var sessionID = ""
 		for _, cookie := range req.Cookies() {
 			if cookie.Name == "laravel_session" {
@@ -188,10 +208,11 @@ func Authenticated(h ContextHandler) ContextHandler {
 			return errors.New("Missing session cookie")
 		}
 
-		if err := db.QueryRow(`SELECT id, username, email, password, moderator FROM users WHERE remember_token = ?`, sessionID).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.Moderator); err != nil {
+		if user, err := findUserByCondition(db, `remember_token = ?`, sessionID); err != nil {
 			return err
+		} else {
+			ctx = context.WithValue(ctx, UserKey, &user)
 		}
-		ctx = context.WithValue(ctx, UserKey, &user)
 
 		return h.ServeHTTPContext(ctx, rw, req)
 	})
@@ -201,7 +222,6 @@ func MaybeAuthenticated(h ContextHandler) ContextHandler {
 	return ContextHandlerFunc(func(ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
 		var db = ctx.Value(DBKey).(*sql.DB)
 
-		var user = dash.User{}
 		var sessionID = ""
 		for _, cookie := range req.Cookies() {
 			if cookie.Name == "laravel_session" {
@@ -209,8 +229,7 @@ func MaybeAuthenticated(h ContextHandler) ContextHandler {
 			}
 		}
 		if sessionID != "" {
-			var err = db.QueryRow(`SELECT id, username, email, password, moderator FROM users WHERE remember_token = ?`, sessionID).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.Moderator)
-			if err == nil {
+			if user, err := findUserByCondition(db, `remember_token = ?`, sessionID); err == nil {
 				ctx = context.WithValue(ctx, UserKey, &user)
 			}
 		}

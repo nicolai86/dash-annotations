@@ -39,39 +39,13 @@ type tListResponse struct {
 	Teams  []dash.TeamMember `json:"teams,omitempty"`
 }
 
-const teamListQuery = `
-	SELECT
-		t.id,
-		t.name,
-		tm.role
-	FROM team_user AS tm
-	INNER JOIN teams AS t ON t.id = tm.team_id
-	WHERE tm.user_id = ?`
-
 func TeamsList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var rows, err = db.Query(teamListQuery, user.ID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var memberships = make([]dash.TeamMember, 0)
-	for rows.Next() {
-		var membership = dash.TeamMember{}
-		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
-			return err
-		}
-		memberships = append(memberships, membership)
-	}
-
-	var resp = tListResponse{
+	json.NewEncoder(w).Encode(tListResponse{
 		Status: "success",
-		Teams:  memberships,
-	}
-	json.NewEncoder(w).Encode(resp)
+		Teams:  user.TeamMemberships,
+	})
 	return nil
 }
 

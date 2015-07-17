@@ -40,25 +40,6 @@ func findVoteByEntryAndUser(db *sql.DB, entry dash.Entry, u dash.User) (dash.Vot
 	return vote, err
 }
 
-func findTeamMembershipsForUser(db *sql.DB, u dash.User) ([]dash.TeamMember, error) {
-	var rows, err = db.Query(`SELECT t.id, t.name, tm.role FROM team_user AS tm INNER JOIN teams AS t ON t.id = tm.team_id WHERE tm.user_id = ?`, u.ID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var memberships = make([]dash.TeamMember, 0)
-	for rows.Next() {
-		var membership = dash.TeamMember{}
-		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
-			return nil, err
-		}
-		memberships = append(memberships, membership)
-	}
-
-	return memberships, nil
-}
-
 func FindByTeamAndIdentifier(db *sql.DB, identifier dash.IdentifierDict, user dash.User) ([]dash.Entry, error) {
 	if len(user.TeamMemberships) < 1 {
 		return nil, nil
@@ -200,11 +181,6 @@ func EntriesList(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	var user *dash.User = nil
 	if ctx.Value(UserKey) != nil {
 		user = ctx.Value(UserKey).(*dash.User)
-	}
-
-	if user != nil {
-		var teams, _ = findTeamMembershipsForUser(db, *user)
-		user.TeamMemberships = teams
 	}
 
 	var dec = json.NewDecoder(req.Body)
@@ -491,12 +467,6 @@ func EntryGet(ctx context.Context, w http.ResponseWriter, req *http.Request) err
 	}
 
 	var vote, _ = findVoteByEntryAndUser(db, *entry, user)
-	var err error
-	var teams []dash.TeamMember
-	if teams, err = findTeamMembershipsForUser(db, user); err != nil {
-		return err
-	}
-	user.TeamMemberships = teams
 	var resp = eGetResponse{
 		Status:          "success",
 		Body:            entry.Body,
@@ -611,9 +581,6 @@ func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.
 
 	var payload eGetRequest
 	json.NewDecoder(req.Body).Decode(&payload)
-
-	var teams, _ = findTeamMembershipsForUser(db, *user)
-	user.TeamMemberships = teams
 
 	var isTeamModerator = false
 	for _, membership := range user.TeamMemberships {
