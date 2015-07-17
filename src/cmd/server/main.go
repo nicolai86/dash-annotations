@@ -38,11 +38,14 @@ func jsonHandler(next http.Handler) http.HandlerFunc {
 	}
 }
 
+// ContextAdapter is a compatability layer for http handlers which take a context
+// as first arguments and return an error, to regular golang http handlers
 type ContextAdapter struct {
 	ctx     context.Context
 	handler handlers.ContextHandler
 }
 
+// ServeHTTP implements the traditional golang net/http interface for a ContextAdapter
 func (ca *ContextAdapter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if err := ca.handler.ServeHTTPContext(ca.ctx, rw, req); err != nil {
 		var enc = json.NewEncoder(rw)
@@ -80,94 +83,94 @@ func main() {
 
 	var rootContext = handlers.NewRootContext(db)
 
-	mux.Handle("/users/register", http.StripPrefix("/users/register", &ContextAdapter{
+	mux.Handle("/users/register", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.ContextHandlerFunc(handlers.UsersRegister),
-	}))
-	mux.Handle("/users/login", http.StripPrefix("/users/login", &ContextAdapter{
+	})
+	mux.Handle("/users/login", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.ContextHandlerFunc(handlers.UserLogin),
-	}))
-	mux.Handle("/users/logout", http.StripPrefix("/users/logout", &ContextAdapter{
+	})
+	mux.Handle("/users/logout", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserLogout)),
-	}))
-	mux.Handle("/users/password", http.StripPrefix("/users/password", &ContextAdapter{
+	})
+	mux.Handle("/users/password", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangePassword)),
-	}))
-	mux.Handle("/users/email", http.StripPrefix("/users/email", &ContextAdapter{
+	})
+	mux.Handle("/users/email", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangeEmail)),
-	}))
+	})
 	// TODO(rr) add support for password forgotten requests /users/forgot/request
 	// TODO(rr) add support for password reset requests /users/forgot/reset
 
-	mux.Handle("/entries/list", http.StripPrefix("/entries/list", &ContextAdapter{
+	mux.Handle("/entries/list", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.MaybeAuthenticated(handlers.ContextHandlerFunc(handlers.EntriesList)),
-	}))
-	mux.Handle("/entries/save", http.StripPrefix("/entries/save", &ContextAdapter{
+	})
+	mux.Handle("/entries/save", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
-	}))
-	mux.Handle("/entries/create", http.StripPrefix("/entries/create", &ContextAdapter{
+	})
+	mux.Handle("/entries/create", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
-	}))
-	mux.Handle("/entries/get", http.StripPrefix("/entries/get", &ContextAdapter{
+	})
+	mux.Handle("/entries/get", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.MaybeAuthenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryGet))),
-	}))
-	mux.Handle("/entries/vote", http.StripPrefix("/entries/vote", &ContextAdapter{
+	})
+	mux.Handle("/entries/vote", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryVote))),
-	}))
-	mux.Handle("/entries/delete", http.StripPrefix("/entries/delete", &ContextAdapter{
+	})
+	mux.Handle("/entries/delete", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryDelete))),
-	}))
-	mux.Handle("/entries/remove_from_public", http.StripPrefix("/entries/remove_from_public", &ContextAdapter{
+	})
+	mux.Handle("/entries/remove_from_public", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromPublic))),
-	}))
-	mux.Handle("/entries/remove_from_teams", http.StripPrefix("/entries/remove_from_teams", &ContextAdapter{
+	})
+	mux.Handle("/entries/remove_from_teams", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromTeams))),
-	}))
+	})
 
-	mux.Handle("/teams/list", http.StripPrefix("/teams/list", &ContextAdapter{
+	mux.Handle("/teams/list", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamsList)),
-	}))
-	mux.Handle("/teams/create", http.StripPrefix("/teams/create", &ContextAdapter{
+	})
+	mux.Handle("/teams/create", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamCreate)),
-	}))
-	mux.Handle("/teams/join", http.StripPrefix("/teams/join", &ContextAdapter{
+	})
+	mux.Handle("/teams/join", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamJoin))),
-	}))
-	mux.Handle("/teams/leave", http.StripPrefix("/teams/leave", &ContextAdapter{
+	})
+	mux.Handle("/teams/leave", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamLeave))),
-	}))
-	mux.Handle("/teams/set_role", http.StripPrefix("/teams/set_role", &ContextAdapter{
+	})
+	mux.Handle("/teams/set_role", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetRole))),
-	}))
-	mux.Handle("/teams/remove_member", http.StripPrefix("/teams/remove_member", &ContextAdapter{
+	})
+	mux.Handle("/teams/remove_member", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamRemoveMember))),
-	}))
-	mux.Handle("/teams/set_access_key", http.StripPrefix("/teams/set_access_key", &ContextAdapter{
+	})
+	mux.Handle("/teams/set_access_key", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetAccessKey))),
-	}))
-	mux.Handle("/teams/list_members", http.StripPrefix("/teams/list_members", &ContextAdapter{
+	})
+	mux.Handle("/teams/list_members", &ContextAdapter{
 		ctx:     rootContext,
 		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamListMember))),
-	}))
+	})
 
 	log.Printf("Listening on %q", listen)
 	http.ListenAndServe(listen, logHandler(jsonHandler(mux)))
