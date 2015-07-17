@@ -4,43 +4,15 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"strings"
-
-	userStore "user_storage"
 
 	"dash"
 
 	"golang.org/x/net/context"
 )
-
-var (
-	// ErrNotLoggedIn is returned when authentication is required but not present
-	ErrNotLoggedIn = errors.New("You are not logged in")
-)
-
-// The key type is unexported to prevent collisions with context keys defined in
-// other packages.
-type key int
-
-const UserKey key = 0
-const DBKey key = 1
-const TeamKey key = 2
-const EntryKey key = 3
-
-type ContextHandler interface {
-	ServeHTTPContext(context.Context, http.ResponseWriter, *http.Request)
-}
-
-type ContextHandlerFunc func(context.Context, http.ResponseWriter, *http.Request)
-
-func (h ContextHandlerFunc) ServeHTTPContext(ctx context.Context, rw http.ResponseWriter, req *http.Request) {
-	h(ctx, rw, req)
-}
 
 // NewRootContext returns a context with the database set. This serves as the root
 // context for all other contexts
@@ -48,23 +20,40 @@ func NewRootContext(db *sql.DB) context.Context {
 	return context.WithValue(context.Background(), DBKey, db)
 }
 
-func FindTeamByName(db *sql.DB, teamName string) (dash.Team, error) {
-	var team = dash.Team{
-		Name: teamName,
-	}
-	var err = db.QueryRow(`SELECT t.id, t.access_key, tm.user_id FROM teams AS t INNER JOIN team_user AS tm ON tm.team_id = t.id WHERE name = ? AND tm.role = ? LIMIT 1`, teamName, "owner").Scan(&team.ID, &team.EncryptedAccessKey, &team.OwnerID)
-	return team, err
+// ContextHandler allows http Handlers to includea context
+type ContextHandler interface {
+	ServeHTTPContext(context.Context, http.ResponseWriter, *http.Request)
 }
 
-func FindUserByUsername(db *sql.DB, username string) (dash.User, error) {
-	var user = dash.User{
-		Username: username,
-	}
-	var err = db.QueryRow(`SELECT id, email, password, remember_token, moderator FROM users WHERE username = ?`, username).Scan(&user.ID, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator)
-	return user, err
+// ContextHandlerFunc defines a function that implements the ContextHandler interface
+type ContextHandlerFunc func(context.Context, http.ResponseWriter, *http.Request)
+
+// ServeHTTPContext calls the ContextHandlerFunc with the given context, ResponseWrite and Request
+func (h ContextHandlerFunc) ServeHTTPContext(ctx context.Context, rw http.ResponseWriter, req *http.Request) {
+	h(ctx, rw, req)
 }
 
-func FindEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
+// The key type is unexported to prevent collisions with context keys defined in
+// other packages.
+type key int
+
+// UserKey is used to fetch the current user from a context
+const UserKey key = 0
+
+// DBKey is used to fetch the database connection from a context
+const DBKey key = 1
+
+// TeamKey is used to fetch the current team from a context
+const TeamKey key = 2
+
+// EntryKey is used to fetch the current entry from a context
+const EntryKey key = 3
+
+type withEntryPayload struct {
+	EntryID int `json:"entry_id"`
+}
+
+func findEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
 	var entry = dash.Entry{
 		ID: entryID,
 	}
@@ -102,10 +91,6 @@ func FindEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
 	return entry, err
 }
 
-type withEntryPayload struct {
-	EntryID int `json:"entry_id"`
-}
-
 // WithEntry is a middleware that extracts an entry from the given payload and
 // adds it to the request context.
 // The entry is searched by id, using the entry_id parameter
@@ -130,9 +115,8 @@ func WithEntry(h ContextHandler) ContextHandler {
 			return
 		}
 
-		var entry, err = FindEntryByID(db, payload.EntryID)
+		var entry, err = findEntryByID(db, payload.EntryID)
 		if err != nil {
-			log.Printf("unable to find entry")
 			enc.Encode(map[string]string{
 				"status":  "error",
 				"message": "Error. Logout and try again",
@@ -147,6 +131,14 @@ func WithEntry(h ContextHandler) ContextHandler {
 
 type withTeamPayload struct {
 	TeamName string `json:"name"`
+}
+
+func findTeamByName(db *sql.DB, teamName string) (dash.Team, error) {
+	var team = dash.Team{
+		Name: teamName,
+	}
+	var err = db.QueryRow(`SELECT t.id, t.access_key, tm.user_id FROM teams AS t INNER JOIN team_user AS tm ON tm.team_id = t.id WHERE name = ? AND tm.role = ? LIMIT 1`, teamName, "owner").Scan(&team.ID, &team.EncryptedAccessKey, &team.OwnerID)
+	return team, err
 }
 
 // WithTeam is a middleware that extracts the team from the given payload and
@@ -173,7 +165,7 @@ func WithTeam(h ContextHandler) ContextHandler {
 			return
 		}
 
-		var team, err = FindTeamByName(db, payload.TeamName)
+		var team, err = findTeamByName(db, payload.TeamName)
 		if err != nil {
 			enc.Encode(map[string]string{
 				"status":  "error",
@@ -185,6 +177,14 @@ func WithTeam(h ContextHandler) ContextHandler {
 		ctx = context.WithValue(ctx, TeamKey, &team)
 		h.ServeHTTPContext(ctx, rw, req)
 	})
+}
+
+func findUserByUsername(db *sql.DB, username string) (dash.User, error) {
+	var user = dash.User{
+		Username: username,
+	}
+	var err = db.QueryRow(`SELECT id, email, password, remember_token, moderator FROM users WHERE username = ?`, username).Scan(&user.ID, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator)
+	return user, err
 }
 
 // Authenticated is a middleware that checks for authentication in the request
@@ -202,12 +202,10 @@ func Authenticated(h ContextHandler) ContextHandler {
 			}
 		}
 		if sessionID == "" {
-			log.Printf("no laravel_session cookie found")
 			return
 		}
 		var err = db.QueryRow(`SELECT id, username, email, password, moderator FROM users WHERE remember_token = ?`, sessionID).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.Moderator)
 		if err != nil {
-			log.Printf("unknown user")
 			return
 		}
 		ctx = context.WithValue(ctx, UserKey, &user)
@@ -236,19 +234,4 @@ func MaybeAuthenticated(h ContextHandler) ContextHandler {
 
 		h.ServeHTTPContext(ctx, rw, req)
 	})
-}
-
-func getUserFromSession(u userStore.Storage, req *http.Request) (dash.User, error) {
-	var sessionID = ""
-	for _, cookie := range req.Cookies() {
-		if cookie.Name == "laravel_session" {
-			sessionID = cookie.Value
-		}
-	}
-	if sessionID == "" {
-		log.Printf("no laravel_session cookie found")
-		return dash.User{}, errors.New("no session")
-	}
-	log.Printf("session: %q", sessionID)
-	return u.FindByRememberToken(sessionID)
 }

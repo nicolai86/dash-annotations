@@ -25,7 +25,7 @@ func clearDB(db *sql.DB) {
 	tx.Exec(`SET FOREIGN_KEY_CHECKS = 0;`)
 	tx.Exec(`truncate users;`)
 	tx.Exec(`truncate teams;`)
-	tx.Exec(`truncate team_entry;`)
+	tx.Exec(`truncate entry_team;`)
 	tx.Exec(`truncate team_user;`)
 	tx.Exec(`truncate entries;`)
 	tx.Exec(`truncate identifiers;`)
@@ -104,10 +104,6 @@ func TestSQLStorage(t *testing.T) {
 		t.Fatalf("failed to set identifier id")
 	}
 
-	if _, err := stor.FindByID(entry.ID); err != nil {
-		t.Fatalf("failed to reload: %v", err)
-	}
-
 	var foreign = setupUser(db, "hummer")
 	if entries, err := stor.FindOwnByIdentifier(entry.Identifier, &foreign); len(entries) != 0 || err != nil {
 		t.Fatalf("length is wrong: %v %v", entries, err)
@@ -119,9 +115,5 @@ func TestSQLStorage(t *testing.T) {
 
 	if entries, err := stor.FindPublicByIdentifier(entry.Identifier, &foreign); len(entries) != 1 || err != nil {
 		t.Fatalf("length is wrong: %v %v", entries, err)
-	}
-
-	if err := stor.Delete(&entry); err != nil {
-		t.Fatalf("expected delete to go through")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -138,7 +137,6 @@ func TeamJoin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 
 	var payload map[string]interface{}
 	dec.Decode(&payload)
-	log.Printf("%#v", payload)
 
 	if !team.AccessKeysMatch(payload["access_key"].(string)) {
 		enc.Encode(map[string]string{
@@ -237,7 +235,7 @@ func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 
 	var target dash.User
 	var err error
-	target, err = FindUserByUsername(db, username)
+	target, err = findUserByUsername(db, username)
 	if err != nil {
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -282,7 +280,7 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 
 	var target dash.User
 	var err error
-	target, err = FindUserByUsername(db, username)
+	target, err = findUserByUsername(db, username)
 	if err != nil {
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -292,7 +290,6 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 	}
 
 	if _, err := db.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, target.ID); err != nil {
-		log.Printf("%v", err)
 		enc.Encode(map[string]string{
 			"status":  "error",
 			"message": "Unknown user",

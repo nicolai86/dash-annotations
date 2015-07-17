@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"math/rand"
 	"net/http"
 	"time"
@@ -22,8 +21,7 @@ func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request
 
 	var enc = json.NewEncoder(w)
 
-	if _, err := FindUserByUsername(db, payload.Username); err == nil {
-		log.Printf("bad register request: %#v", payload)
+	if _, err := findUserByUsername(db, payload.Username); err == nil {
 		w.WriteHeader(http.StatusBadRequest)
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -39,18 +37,15 @@ func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request
 
 	var res, err = db.Exec(`INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now())
 	if err != nil {
-		log.Printf("err: %v", err)
 		return
 	}
 	var userID int64
 	userID, err = res.LastInsertId()
 	if err != nil {
-		log.Printf("err: %v", err)
 		return
 	}
 	u.ID = int(userID)
 
-	log.Printf("registration successful")
 	w.WriteHeader(http.StatusOK)
 	enc.Encode(map[string]string{
 		"status": "success",
@@ -80,7 +75,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	dec.Decode(&payload)
 
 	var enc = json.NewEncoder(w)
-	var u, err = FindUserByUsername(db, payload.Username)
+	var u, err = findUserByUsername(db, payload.Username)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		enc.Encode(map[string]string{
@@ -106,7 +101,6 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 
 	if _, err := db.Exec(`UPDATE users SET remember_token = ? WHERE id = ?`, u.RememberToken, u.ID); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		log.Printf("unable to create session")
 		enc.Encode(map[string]string{
 			"status": "error",
 		})
@@ -135,7 +129,6 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	ckie.HttpOnly = true
 	http.SetCookie(w, ckie)
 
-	log.Printf("login successful: %q", u.RememberToken.String)
 	w.WriteHeader(http.StatusOK)
 	var data = map[string]string{
 		"status": "success",
@@ -161,7 +154,6 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	}
 
 	db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID)
-	log.Printf("logout successful")
 
 	var enc = json.NewEncoder(w)
 	enc.Encode(map[string]string{

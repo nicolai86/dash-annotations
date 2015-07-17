@@ -4,21 +4,30 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"text/template"
+	"time"
 
 	"golang.org/x/net/context"
 
 	entryStore "entry_storage"
-	userStore "user_storage"
-	voteStore "vote_storage"
 
 	"dash"
 )
+
+func findVoteByEntryAndUser(db *sql.DB, entry dash.Entry, u dash.User) (dash.Vote, error) {
+	var vote = dash.Vote{
+		EntryID: entry.ID,
+		UserID:  u.ID,
+	}
+	var err = db.QueryRow(`SELECT id, type, entry_id, user_id FROM votes WHERE entry_id = ? AND user_id = ?`, entry.ID, u.ID).Scan(&vote.ID, &vote.Type, &vote.EntryID, &vote.UserID)
+	return vote, err
+}
 
 func findTeamMembershipsForUser(db *sql.DB, u dash.User) ([]dash.TeamMember, error) {
 	var rows, err = db.Query(`SELECT t.id, t.name, tm.role FROM team_user AS tm INNER JOIN teams AS t ON t.id = tm.team_id WHERE tm.user_id = ?`, u.ID)
@@ -39,16 +48,10 @@ func findTeamMembershipsForUser(db *sql.DB, u dash.User) ([]dash.TeamMember, err
 	return memberships, nil
 }
 
-type EntriesHandler struct {
-	UserStorage  userStore.Storage
-	EntryStorage entryStore.Storage
-	VoteStorage  voteStore.Storage
-	DB           *sql.DB
-}
-
 type entriesListRequest struct {
 	Identifier dash.IdentifierDict `json:"identifier"`
 }
+
 type entriesListResponse struct {
 	Status        string       `json:"status"`
 	PublicEntries []dash.Entry `json:"public_entries,omitempty"`
@@ -133,25 +136,21 @@ func EntriesSave(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 
 		switch err {
 		case entryStore.ErrMissingTitle, entryStore.ErrMissingBody, entryStore.ErrMissingAnchor:
-			log.Printf("invalid entry/save")
 			enc.Encode(map[string]string{
 				"status":  "error",
 				"message": "Oops. Unknown error",
 			})
 		case entryStore.ErrPublicAnnotationForbidden:
-			log.Printf("public annotation forbidden")
 			enc.Encode(map[string]string{
 				"status":  "error",
 				"message": "Public annotations are not allowed on this page",
 			})
 		case entryStore.ErrUpdateForbidden:
-			log.Printf("update forbidden")
 			enc.Encode(map[string]string{
 				"status":  "error",
 				"message": "Error. Logout and try again",
 			})
 		default:
-			log.Printf("Unknown error: %v", err)
 			enc.Encode(map[string]string{
 				"status":  "error",
 				"message": "Oops. Unknown error",
@@ -165,9 +164,8 @@ func EntriesSave(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 		UserID:  user.ID,
 		Type:    dash.VoteUp,
 	}
-	var voteStorage = voteStore.New(db)
-	voteStorage.Upsert(&vote)
-	entryStorage.UpdateScore(&entry)
+	db.Exec(`INSERT INTO votes (type, entry_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, vote.Type, vote.EntryID, vote.UserID, time.Now(), time.Now())
+	updateEntryVoteScore(db, &entry)
 
 	var resp = entrySaveResponse{
 		Entry:  entry,
@@ -264,8 +262,7 @@ func EntryGet(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
 	var enc = json.NewEncoder(w)
-	var voteStorage = voteStore.New(db)
-	var vote, _ = voteStorage.FindVoteByEntryAndUser(*entry, user)
+	var vote, _ = findVoteByEntryAndUser(db, *entry, user)
 	var teams, _ = findTeamMembershipsForUser(db, user)
 	user.TeamMemberships = teams
 	var resp = entryGetResponse{
@@ -282,6 +279,18 @@ type voteRequest struct {
 	EntryID  int `json:"entry_id"`
 }
 
+func updateEntryVoteScore(db *sql.DB, entry *dash.Entry) error {
+	var score = 0
+	var err = db.QueryRow(`SELECT SUM(type) FROM votes WHERE entry_id = ?`, entry.ID).Scan(&score)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`UPDATE entries SET score = ? WHERE id = ?`, score, entry.ID)
+	entry.Score = score
+	return err
+}
+
 func EntryVote(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -292,13 +301,17 @@ func EntryVote(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	dec.Decode(&payload)
 
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
-	var entryStorage = entryStore.New(db)
 	var vote dash.Vote
-	var voteStorage = voteStore.New(db)
-	vote, _ = voteStorage.FindVoteByEntryAndUser(*entry, *user)
+	vote, _ = findVoteByEntryAndUser(db, *entry, *user)
 	vote.Type = payload.VoteType
-	voteStorage.Upsert(&vote)
-	entryStorage.UpdateScore(entry)
+
+	if vote.ID != 0 {
+		db.Exec(`UPDATE votes SET type = ?, updated_at = ? WHERE entry_id = ? AND user_id = ?`, vote.Type, time.Now(), vote.EntryID, vote.UserID)
+	} else {
+		db.Exec(`INSERT INTO votes (type, entry_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, vote.Type, vote.EntryID, vote.UserID, time.Now(), time.Now())
+	}
+
+	updateEntryVoteScore(db, entry)
 	enc.Encode(map[string]string{
 		"status": "success",
 	})
@@ -314,7 +327,6 @@ func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	dec.Decode(&payload)
 
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
-	var entryStorage = entryStore.New(db)
 	if entry.UserID != user.ID {
 		enc.Encode(map[string]string{
 			"status":  "error",
@@ -323,7 +335,9 @@ func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	entryStorage.Delete(entry)
+	db.Exec(`DELETE FROM votes WHERE entry_id = ?`, entry.ID)
+	db.Exec(`DELETE FROM entry_team WHERE entry_id = ?`, entry.ID)
+	db.Exec(`DELETE FROM entries WHERE id = ?`, entry.ID)
 
 	enc.Encode(map[string]string{
 		"status": "success",
@@ -333,17 +347,18 @@ func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 func EntryRemoveFromPublic(ctx context.Context, w http.ResponseWriter, req *http.Request) {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
 
 	var enc = json.NewEncoder(w)
-	var payload entryGetRequest
-	var dec = json.NewDecoder(req.Body)
-	dec.Decode(&payload)
+	if !user.Moderator {
+		enc.Encode(map[string]string{
+			"status":  "error",
+			"message": "Only a moderator can remove the entry from public",
+		})
+		return
+	}
 
-	var entry = ctx.Value(EntryKey).(*dash.Entry)
-	var entryStorage = entryStore.New(db)
-	entry.RemovedFromPublic = true
-	if err := entryStorage.Store(entry, *user); err != nil {
-		log.Printf("fuck: %v", err)
+	if _, err := db.Exec(`UPDATE entries SET removed_from_public = ? WHERE id = ?`, true, entry.ID); err != nil {
 		enc.Encode(map[string]string{
 			"status":  "error",
 			"message": "Oops. Unknown error",
@@ -366,7 +381,6 @@ func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.
 	dec.Decode(&payload)
 
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
-	var entryStorage = entryStore.New(db)
 	var teams, _ = findTeamMembershipsForUser(db, *user)
 	user.TeamMemberships = teams
 
@@ -379,7 +393,6 @@ func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.
 	}
 	var err error
 	if err != nil || !isTeamModerator {
-		log.Printf("You are no team moderator")
 		enc.Encode(map[string]string{
 			"status":  "error",
 			"message": "Error. Logout and try again",
@@ -387,8 +400,17 @@ func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.
 		return
 	}
 
-	if err := entryStorage.RemoveFromTeams(*entry, *user); err != nil {
-		log.Printf("error removing from teams: %v", err)
+	var args = []interface{}{
+		true,
+		entry.ID,
+	}
+	for _, membership := range user.TeamMemberships {
+		args = append(args, membership.TeamID)
+	}
+	query := fmt.Sprintf(`UPDATE entry_team SET removed_from_team = ? WHERE entry_id = ? AND team_id IN (%s)`,
+		strings.Join(strings.Split(strings.Repeat("?", len(user.TeamMemberships)), ""), ","))
+
+	if _, err := db.Exec(query, args...); err != nil {
 		enc.Encode(map[string]string{
 			"status":  "error",
 			"message": "Oops. Unknown error",

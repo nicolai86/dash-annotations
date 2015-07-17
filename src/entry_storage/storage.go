@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -16,10 +15,6 @@ import (
 
 type Storage interface {
 	Store(*dash.Entry, dash.User) error
-	UpdateScore(*dash.Entry) error
-	RemoveFromTeams(dash.Entry, dash.User) error
-	Delete(*dash.Entry) error
-	FindByID(int) (dash.Entry, error)
 	FindPublicByIdentifier(dash.IdentifierDict, *dash.User) ([]dash.Entry, error)
 	FindOwnByIdentifier(dash.IdentifierDict, *dash.User) ([]dash.Entry, error)
 	FindByTeamAndIdentifier(dash.IdentifierDict, dash.User) ([]dash.Entry, error)
@@ -44,58 +39,12 @@ var (
 	ErrUpdateForbidden           = errors.New("you are not the author")
 )
 
-func (storage *sqlStorage) Delete(entry *dash.Entry) error {
-	storage.db.Exec(`DELETE FROM votes WHERE entry_id = ?`, entry.ID)
-	storage.db.Exec(`DELETE FROM entry_team WHERE entry_id = ?`, entry.ID)
-
-	var res, err = storage.db.Exec(`DELETE FROM entries WHERE id = ?`, entry.ID)
-	if err != nil {
-		return err
-	}
-	if cnt, err := res.RowsAffected(); err != nil {
-		return err
-	} else {
-		if cnt != 1 {
-			return errors.New("did not find you")
-		}
-		return nil
-	}
-}
-
-func (storage *sqlStorage) UpdateScore(entry *dash.Entry) error {
-	var score = 0
-	var err = storage.db.QueryRow(`SELECT SUM(type) FROM votes WHERE entry_id = ?`, entry.ID).Scan(&score)
-	if err != nil {
-		return err
-	}
-
-	_, err = storage.db.Exec(`UPDATE entries SET score = ? WHERE id = ?`, score, entry.ID)
-	entry.Score = score
-	return err
-}
-
-func (storage *sqlStorage) RemoveFromTeams(entry dash.Entry, user dash.User) error {
-	var args = []interface{}{
-		true,
-		entry.ID,
-	}
-	for _, membership := range user.TeamMemberships {
-		args = append(args, membership.TeamID)
-	}
-	query := fmt.Sprintf(`UPDATE entry_team SET removed_from_team = ? WHERE entry_id = ? AND team_id IN (%s)`,
-		strings.Join(strings.Split(strings.Repeat("?", len(user.TeamMemberships)), ""), ","))
-	var _, err = storage.db.Exec(query, args...)
-	return err
-}
-
 func (storage *sqlStorage) FindByTeamAndIdentifier(identifier dash.IdentifierDict, user dash.User) ([]dash.Entry, error) {
 	if len(user.TeamMemberships) < 1 {
-		log.Printf("no teams")
 		return nil, nil
 	}
 
 	if err := storage.upsertIdentifier(&identifier); err != nil {
-		log.Printf("failed upsert: %v", err)
 		return nil, err
 	}
 
@@ -111,11 +60,9 @@ func (storage *sqlStorage) FindByTeamAndIdentifier(identifier dash.IdentifierDic
 	for _, membership := range user.TeamMemberships {
 		params = append(params, membership.TeamID)
 	}
-	log.Printf("%v %#v", query, params)
 	var rows, err = storage.db.Query(query, params...)
 	defer rows.Close()
 	if err != nil {
-		log.Printf("foo %v", err)
 		return nil, err
 	}
 
@@ -172,11 +119,9 @@ func (storage *sqlStorage) FindPublicByIdentifier(identifier dash.IdentifierDict
 		query += ` AND user_id != ?`
 		params = append(params, user.ID)
 	}
-	log.Printf("%v %v", query, params)
 	var rows, err = storage.db.Query(query, params...)
 	defer rows.Close()
 	if err != nil {
-		log.Printf("%#v", err)
 		return nil, err
 	}
 
@@ -217,44 +162,6 @@ func (storage *sqlStorage) FindOwnByIdentifier(identifier dash.IdentifierDict, u
 	}
 
 	return entries, nil
-}
-
-func (storage *sqlStorage) FindByID(entryID int) (dash.Entry, error) {
-	var entry = dash.Entry{
-		ID: entryID,
-	}
-	var rawTeams string
-	var err = storage.db.QueryRow(`SELECT
-				e.title,
-				e.type,
-				e.anchor,
-				e.body,
-				e.body_rendered,
-				e.score,
-				e.user_id,
-				e.removed_from_public,
-				e.public,
-				u.username,
-				COALESCE((select group_concat(t.name SEPARATOR '||||') FROM teams AS t inner join entry_team ON t.id = entry_team.team_id where entry_team.entry_id = e.id), '')
-			FROM entries AS e
-			INNER JOIN users AS u ON u.id = e.user_id
-			WHERE e.id = ?`, entryID,
-	).Scan(
-		&entry.Title,
-		&entry.Type,
-		&entry.Anchor,
-		&entry.Body,
-		&entry.BodyRendered,
-		&entry.Score,
-		&entry.UserID,
-		&entry.RemovedFromPublic,
-		&entry.Public,
-		&entry.AuthorUsername,
-		&rawTeams)
-	if rawTeams != "" {
-		entry.Teams = strings.Split(rawTeams, "||||")
-	}
-	return entry, err
 }
 
 func (storage *sqlStorage) Store(entry *dash.Entry, author dash.User) error {
