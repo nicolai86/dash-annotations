@@ -1,5 +1,7 @@
 package dash
 
+import "time"
+
 const (
 	// VoteDown is a negative Vote-Type
 	VoteDown = -1
@@ -9,10 +11,12 @@ const (
 
 // Vote identifies that a user either up- or downvoted an entry
 type Vote struct {
-	ID      int
-	Type    int
-	EntryID int
-	UserID  int
+	ID        int
+	Type      int
+	EntryID   int
+	UserID    int
+	UpdatedAt time.Time
+	CreatedAt time.Time
 }
 
 // IsUpvote is a predicate testing for VoteUp types

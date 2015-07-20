@@ -1,4 +1,4 @@
-package handlers
+package main
 
 import (
 	"database/sql"
@@ -22,15 +22,18 @@ var (
 	ErrEmailExists = errors.New("A user with this email already exists")
 )
 
-type registerRequest struct {
+type userRegisterRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+const userRegisterQuery = `INSERT INTO users (username, password, created_at, updated_at) VALUES (?, ?, ?, ?)`
+
+// UserRegister tries to create a new user inside the dash annotations database
+func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 
-	var payload registerRequest
+	var payload userRegisterRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	if _, err := findUserByUsername(db, payload.Username); err == nil {
@@ -42,7 +45,7 @@ func UsersRegister(ctx context.Context, w http.ResponseWriter, req *http.Request
 	}
 	u.ChangePassword(payload.Password)
 
-	if _, err := db.Exec(`INSERT INTO users (username, password, created_at) VALUES (?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now()); err != nil {
+	if _, err := db.Exec(userRegisterQuery, u.Username, u.EncryptedPassword, time.Now(), time.Now()); err != nil {
 		return err
 	}
 
@@ -62,15 +65,18 @@ func randSeq(n int) string {
 	return string(b)
 }
 
-type loginRequest struct {
+type userLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
+const userLoginLogoutQuery = `UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`
+
+// UserLogin tries to authenticate an existing user using username/ password combination
 func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 
-	var payload loginRequest
+	var payload userLoginRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	var user, err = findUserByUsername(db, payload.Username)
@@ -87,7 +93,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		Valid:  true,
 	}
 
-	if _, err := db.Exec(`UPDATE users SET remember_token = ? WHERE id = ?`, user.RememberToken, user.ID); err != nil {
+	if _, err := db.Exec(userLoginLogoutQuery, user.RememberToken, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -106,6 +112,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		}
 	}
 
+	// TODO(rr) the remembertoken should be part of the session cookie, not the session cookie
 	ckie.Value = user.RememberToken.String
 	ckie.MaxAge = 7200
 	ckie.Expires = time.Now().Add(7200 * time.Second)
@@ -124,6 +131,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	return nil
 }
 
+// UserLogout destroys the session of the current user
 func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -138,7 +146,7 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		Valid: true,
 	}
 
-	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(userLoginLogoutQuery, user.RememberToken, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -148,19 +156,22 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 	return nil
 }
 
-type changePasswordRequest struct {
+type userChangePasswordRequest struct {
 	Password string `json:"password"`
 }
 
+const userChangePasswordQuery = `UPDATE users SET password = ?, updated_at = ? WHERE id = ?`
+
+// UserChangePassword changes the encrypted password of the current user
 func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var payload changePasswordRequest
+	var payload userChangePasswordRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	user.ChangePassword(payload.Password)
-	if _, err := db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(userChangePasswordQuery, user.EncryptedPassword, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -170,15 +181,18 @@ func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Re
 	return nil
 }
 
-type changeEmailRequest struct {
+type userChangeEmailRequest struct {
 	Email string `json:"email"`
 }
 
+const userChangeEmailQuery = `UPDATE users SET email = ?, updated_at = ? WHERE id = ?`
+
+// UserChangeEmail changes the email address of the current user
 func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	var payload changeEmailRequest
+	var payload userChangeEmailRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	var existingUserID = -1
@@ -188,7 +202,7 @@ func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Reque
 	}
 
 	user.Email = sql.NullString{String: payload.Email, Valid: true}
-	if _, err := db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(userChangeEmailQuery, user.Email, time.Now(), user.ID); err != nil {
 		return err
 	}
 

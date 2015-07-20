@@ -1,4 +1,4 @@
-package handlers
+package main
 
 import (
 	"database/sql"
@@ -34,21 +34,23 @@ var (
 	ErrTeamNameMissing = errors.New("Missing parameter: name")
 )
 
-type tListResponse struct {
+type teamListResponse struct {
 	Status string            `json:"status"`
 	Teams  []dash.TeamMember `json:"teams,omitempty"`
 }
 
-func TeamsList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+// TeamList returns a list of all teams the current user is a member|moderator of
+func TeamList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var user = ctx.Value(UserKey).(*dash.User)
 
-	json.NewEncoder(w).Encode(tListResponse{
+	json.NewEncoder(w).Encode(teamListResponse{
 		Status: "success",
 		Teams:  user.TeamMemberships,
 	})
 	return nil
 }
 
+// TeamCreate tries to create a new team with a given name inside the database
 func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -72,8 +74,16 @@ func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		return ErrTeamNameExists
 	}
 
-	if _, err := db.Exec(`INSERT INTO teams (name, access_key, created_at, updated_at) VALUES (?, ?, ?)`, team.Name, "", time.Now(), time.Now()); err != nil {
+	if res, err := db.Exec(`INSERT INTO teams (name, access_key, created_at, updated_at) VALUES (?, ?, ?, ?)`, team.Name, "", time.Now(), time.Now()); err != nil {
 		return err
+	} else {
+
+		var teamID int64
+		teamID, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		team.ID = int(teamID)
 	}
 
 	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "owner"); err != nil {
@@ -86,25 +96,26 @@ func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 	return nil
 }
 
-type joinRequest struct {
+type teamJoinRequest struct {
 	AccessKey string `json:"access_key"`
 }
 
+// TeamJoin tries to add the current user to the requested team
 func TeamJoin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
-	var team = ctx.Value(TeamKey).(*dash.Team)
+	var targetTeam = ctx.Value(TeamKey).(*dash.Team)
 
 	var dec = json.NewDecoder(req.Body)
 
-	var payload joinRequest
+	var payload teamJoinRequest
 	dec.Decode(&payload)
 
-	if !team.AccessKeysMatch(payload.AccessKey) {
+	if !targetTeam.AccessKeysMatch(payload.AccessKey) {
 		return errors.New("Invalid access key")
 	}
 
-	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "member"); err != nil {
+	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, targetTeam.ID, user.ID, "member"); err != nil {
 		return err
 	}
 
@@ -114,6 +125,7 @@ func TeamJoin(ctx context.Context, w http.ResponseWriter, req *http.Request) err
 	return nil
 }
 
+// TeamLeave removes the current user from the requested team
 func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -168,11 +180,12 @@ func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	return nil
 }
 
-type setRoleRequest struct {
+type teamSetRoleRequest struct {
 	Role     string `json:"role"`
 	Username string `json:"username"`
 }
 
+// TeamSetRole changes the role of the target user to the requested role
 func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -184,7 +197,7 @@ func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 
 	var dec = json.NewDecoder(req.Body)
 
-	var payload setRoleRequest
+	var payload teamSetRoleRequest
 	dec.Decode(&payload)
 
 	if payload.Role == "" {
@@ -211,10 +224,11 @@ func TeamSetRole(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	return nil
 }
 
-type removeMemberRequest struct {
+type teamRemoveMemberRequest struct {
 	Username string `json:"username"`
 }
 
+// TeamRemoveMember allows a moderator to remove a member from a team
 func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -224,7 +238,7 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 		return ErrNotTeamOwner
 	}
 
-	var payload removeMemberRequest
+	var payload teamRemoveMemberRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	if payload.Username == "" {
@@ -277,10 +291,11 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 	return nil
 }
 
-type setAccessKeyRequest struct {
+type teamSetAccessKeyRequest struct {
 	AccessKey string `json:"access_key"`
 }
 
+// TeamSetAccessKey allows moderators to change the access key for a given team
 func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -292,7 +307,7 @@ func TeamSetAccessKey(ctx context.Context, w http.ResponseWriter, req *http.Requ
 
 	var enc = json.NewEncoder(w)
 
-	var payload setAccessKeyRequest
+	var payload teamSetAccessKeyRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	team.ChangeAccessKey(payload.AccessKey)
@@ -312,12 +327,13 @@ type membership struct {
 	Username string `json:"name"`
 }
 
-type listMembersResponse struct {
+type teamListMembersResponse struct {
 	Status       string       `json:"status"`
 	Members      []membership `json:"members"`
 	HasAccessKey bool         `json:"has_access_key"`
 }
 
+// TeamListMember allows moderators to list all members of a requested team
 func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
@@ -345,7 +361,7 @@ func TeamListMember(ctx context.Context, w http.ResponseWriter, req *http.Reques
 		memberships = append(memberships, membership)
 	}
 
-	var resp = listMembersResponse{
+	var resp = teamListMembersResponse{
 		Status:       "success",
 		Members:      memberships,
 		HasAccessKey: team.EncryptedAccessKey != "",

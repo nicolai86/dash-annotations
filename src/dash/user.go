@@ -2,6 +2,7 @@ package dash
 
 import (
 	"database/sql"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -14,6 +15,8 @@ type User struct {
 	RememberToken     sql.NullString
 	TeamMemberships   []TeamMember
 	Moderator         bool
+	UpdatedAt         time.Time
+	CreatedAt         time.Time
 }
 
 func (u *User) ChangePassword(newPassword string) {

@@ -1,4 +1,4 @@
-package handlers
+package main
 
 import (
 	"bytes"
@@ -14,21 +14,28 @@ import (
 	"time"
 
 	"github.com/russross/blackfriday"
-
 	"golang.org/x/net/context"
 
 	"dash"
 )
 
 var (
-	ErrMissingTitle              = errors.New("Missing parameter: title")
-	ErrMissingBody               = errors.New("Missing parameter: body")
-	ErrMissingAnchor             = errors.New("Missing parameter: anchor")
+	// ErrMissingTitle will be returned when you try to create an annotation without a title
+	ErrMissingTitle = errors.New("Missing parameter: title")
+	// ErrMissingBody will be returned when you try to create an annotation without body
+	ErrMissingBody = errors.New("Missing parameter: body")
+	// ErrMissingAnchor will be returned when the Dash frontend fails to include an anchor for a new entry
+	ErrMissingAnchor = errors.New("Missing parameter: anchor")
+	// ErrPublicAnnotationForbidden will be returned when the requested identifier is banned from public
 	ErrPublicAnnotationForbidden = errors.New("Public annotations forbidden")
-	ErrUpdateForbidden           = errors.New("You need to be the author")
-	ErrDeleteForbidden           = errors.New("Only the author can delete an entry")
-	ErrNotModerator              = errors.New("You need to be a moderator for this")
-	ErrNotTeamModerator          = errors.New("You need to be the teams moderator for this")
+	// ErrUpdateForbidden will be returned when a user tries to modify annotations he did not create
+	ErrUpdateForbidden = errors.New("You need to be the author")
+	// ErrDeleteForbidden will be returned when a user tries to delete other users annotations
+	ErrDeleteForbidden = errors.New("Only the author can delete an entry")
+	// ErrNotModerator will be returned when a user tries to remove an annotation from the public without being moderator
+	ErrNotModerator = errors.New("You need to be a moderator for this")
+	// ErrNotTeamModerator will be returned when a user tries to remove an annotation from a team without being team moderator
+	ErrNotTeamModerator = errors.New("You need to be the teams moderator for this")
 )
 
 func findVoteByEntryAndUser(db *sql.DB, entry dash.Entry, u dash.User) (dash.Vote, error) {
@@ -40,7 +47,7 @@ func findVoteByEntryAndUser(db *sql.DB, entry dash.Entry, u dash.User) (dash.Vot
 	return vote, err
 }
 
-func FindByTeamAndIdentifier(db *sql.DB, identifier dash.IdentifierDict, user dash.User) ([]dash.Entry, error) {
+func findByTeamAndIdentifier(db *sql.DB, identifier dash.Identifier, user dash.User) ([]dash.Entry, error) {
 	if len(user.TeamMemberships) < 1 {
 		return nil, nil
 	}
@@ -79,7 +86,7 @@ func FindByTeamAndIdentifier(db *sql.DB, identifier dash.IdentifierDict, user da
 	return entries, nil
 }
 
-func FindPublicByIdentifier(db *sql.DB, identifier dash.IdentifierDict, user *dash.User) ([]dash.Entry, error) {
+func findPublicByIdentifier(db *sql.DB, identifier dash.Identifier, user *dash.User) ([]dash.Entry, error) {
 	if err := upsertIdentifier(db, &identifier); err != nil {
 		return nil, err
 	}
@@ -97,8 +104,7 @@ func FindPublicByIdentifier(db *sql.DB, identifier dash.IdentifierDict, user *da
     WHERE e.identifier_id = ?
     AND e.public = ?
     AND e.removed_from_public = ?
-    AND e.score > ?
-	`
+    AND e.score > ? `
 	var params = []interface{}{identifier.ID, true, false, -5}
 	if user != nil && len(user.TeamMemberships) > 0 {
 		var subQuery = fmt.Sprintf(`SELECT e.id
@@ -138,7 +144,7 @@ func FindPublicByIdentifier(db *sql.DB, identifier dash.IdentifierDict, user *da
 	return entries, nil
 }
 
-func FindOwnByIdentifier(db *sql.DB, identifier dash.IdentifierDict, user *dash.User) ([]dash.Entry, error) {
+func findOwnByIdentifier(db *sql.DB, identifier dash.Identifier, user *dash.User) ([]dash.Entry, error) {
 	if err := upsertIdentifier(db, &identifier); err != nil {
 		return nil, err
 	}
@@ -165,18 +171,19 @@ func FindOwnByIdentifier(db *sql.DB, identifier dash.IdentifierDict, user *dash.
 	return entries, nil
 }
 
-type listRequest struct {
-	Identifier dash.IdentifierDict `json:"identifier"`
+type entryListRequest struct {
+	Identifier dash.Identifier `json:"identifier"`
 }
 
-type listResponse struct {
+type entryListResponse struct {
 	Status        string       `json:"status"`
 	PublicEntries []dash.Entry `json:"public_entries,omitempty"`
 	OwnEntries    []dash.Entry `json:"own_entries,omitempty"`
 	TeamEntries   []dash.Entry `json:"team_entries,omitempty"`
 }
 
-func EntriesList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+// EntryList returns all public/ team/ and own entries for a requested identifier
+func EntryList(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user *dash.User = nil
 	if ctx.Value(UserKey) != nil {
@@ -184,27 +191,27 @@ func EntriesList(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	}
 
 	var dec = json.NewDecoder(req.Body)
-	var listReq listRequest
+	var listReq entryListRequest
 	dec.Decode(&listReq)
 	var enc = json.NewEncoder(w)
 
 	var public, own, team []dash.Entry
 	var err error
-	if public, err = FindPublicByIdentifier(db, listReq.Identifier, user); err != nil {
+	if public, err = findPublicByIdentifier(db, listReq.Identifier, user); err != nil {
 		return err
 	}
-	if own, err = FindOwnByIdentifier(db, listReq.Identifier, user); err != nil {
+	if own, err = findOwnByIdentifier(db, listReq.Identifier, user); err != nil {
 		return err
 	}
 	if user != nil {
 		var err error
-		if team, err = FindByTeamAndIdentifier(db, listReq.Identifier, *user); err != nil {
+		if team, err = findByTeamAndIdentifier(db, listReq.Identifier, *user); err != nil {
 			return err
 		}
 	}
-	// TODO remove from public which are in team
+	// TODO(rr) remove from public which are in team
 
-	var resp = listResponse{
+	var resp = entryListResponse{
 		Status:        "success",
 		PublicEntries: public,
 		OwnEntries:    own,
@@ -214,24 +221,24 @@ func EntriesList(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	return nil
 }
 
-type eSaveRequest struct {
-	Title          string              `json:"title"`
-	Body           string              `json:"body"`
-	Public         bool                `json:"public"`
-	Type           string              `json:"type"`
-	Teams          []string            `json:"teams"`
-	License        string              `json:"license"`
-	IdentifierDict dash.IdentifierDict `json:"identifier"`
-	Anchor         string              `json:"anchor"`
-	EntryID        int                 `json:"entry_id"`
+type entrySaveRequest struct {
+	Title      string          `json:"title"`
+	Body       string          `json:"body"`
+	Public     bool            `json:"public"`
+	Type       string          `json:"type"`
+	Teams      []string        `json:"teams"`
+	License    string          `json:"license"`
+	Identifier dash.Identifier `json:"identifier"`
+	Anchor     string          `json:"anchor"`
+	EntryID    int             `json:"entry_id"`
 }
 
-type eSaveResponse struct {
+type entrySaveResponse struct {
 	Status string     `json:"status"`
 	Entry  dash.Entry `json:"entry"`
 }
 
-func upsertIdentifier(db *sql.DB, dict *dash.IdentifierDict) error {
+func upsertIdentifier(db *sql.DB, dict *dash.Identifier) error {
 	if dict.DocsetFilename == "Mono" && dict.HttrackSource != "" {
 		db.QueryRow(`SELECT id FROM identifiers WHERE docset_filename = ? AND httrack_source = ? LIMIT 1`, dict.DocsetFilename, dict.HttrackSource).Scan(&dict.ID)
 	} else {
@@ -254,7 +261,96 @@ func upsertIdentifier(db *sql.DB, dict *dash.IdentifierDict) error {
 	return nil
 }
 
-func upsertEntry(db *sql.DB, entry *dash.Entry, author *dash.User) error {
+// EntrySave updates an existing entry
+func EntrySave(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
+
+	var entry = ctx.Value(EntryKey).(*dash.Entry)
+	var payload entrySaveRequest
+	json.NewDecoder(req.Body).Decode(&payload)
+
+	entry.Title = payload.Title
+	entry.Type = payload.Type
+	entry.Body = payload.Body
+	entry.Public = payload.Public
+	entry.Anchor = payload.Anchor
+	entry.Teams = payload.Teams
+
+	if entry.Title == "" {
+		return ErrMissingTitle
+	}
+	if entry.Body == "" {
+		return ErrMissingBody
+	}
+	if entry.Anchor == "" {
+		return ErrMissingAnchor
+	}
+
+	if !user.Moderator && entry.UserID != user.ID {
+		return ErrUpdateForbidden
+	}
+	entry.BodyRendered = string(blackfriday.MarkdownCommon([]byte(entry.Body)))
+
+	var _, err = db.Exec(`UPDATE entries SET
+			title               = ?,
+			body                = ?,
+			body_rendered       = ?,
+			type                = ?,
+			anchor              = ?,
+			public              = ?,
+			removed_from_public = ?,
+			score               = ?,
+			updated_at          = ?
+		WHERE id = ?`,
+		entry.Title,
+		entry.Body,
+		entry.BodyRendered,
+		entry.Type,
+		entry.Anchor,
+		entry.Public,
+		entry.RemovedFromPublic,
+		entry.Score,
+		time.Now(), entry.ID)
+	if err != nil {
+		return err
+	}
+
+	db.Exec(`DELETE FROM entry_team WHERE entry_id = ?`, entry.ID)
+	for _, t := range entry.Teams {
+		var teamID int64
+		db.QueryRow(`SELECT id FROM teams WHERE name = ? LIMIT 1`, t).Scan(&teamID)
+		db.Exec(`INSERT INTO entry_team (entry_id, team_id) VALUES (?, ?)`, entry.ID, teamID)
+	}
+
+	updateEntryVoteScore(db, entry)
+
+	json.NewEncoder(w).Encode(entrySaveResponse{
+		Entry:  *entry,
+		Status: "success",
+	})
+	return nil
+}
+
+// EntryCreate creates a new entry with the current user as author
+func EntryCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
+	var db = ctx.Value(DBKey).(*sql.DB)
+	var user = ctx.Value(UserKey).(*dash.User)
+
+	var payload entrySaveRequest
+	json.NewDecoder(req.Body).Decode(&payload)
+
+	var entry = dash.Entry{
+		ID:         payload.EntryID,
+		Title:      payload.Title,
+		Type:       payload.Type,
+		Body:       payload.Body,
+		Public:     payload.Public,
+		Identifier: payload.Identifier,
+		Anchor:     payload.Anchor,
+		Teams:      payload.Teams,
+	}
+
 	if entry.Title == "" {
 		return ErrMissingTitle
 	}
@@ -270,99 +366,20 @@ func upsertEntry(db *sql.DB, entry *dash.Entry, author *dash.User) error {
 	if entry.Public && entry.Identifier.BannedFromPublic {
 		return ErrPublicAnnotationForbidden
 	}
-	var createVote = false
-	if entry.ID != 0 && !author.Moderator {
-		if err := db.QueryRow(`SELECT user_id FROM entries WHERE id = ?`, entry.ID).Scan(&entry.UserID); err != nil {
-			return err
-		}
-		if entry.UserID != author.ID {
-			return ErrUpdateForbidden
-		}
-	} else {
-		entry.Score = 1
-		createVote = true
-	}
 	entry.IdentifierID = entry.Identifier.ID
 	entry.BodyRendered = string(blackfriday.MarkdownCommon([]byte(entry.Body)))
 
-	if entry.ID != 0 {
-		var _, err = db.Exec(`UPDATE entries SET
-				title               = ?,
-				body                = ?,
-				body_rendered       = ?,
-				type                = ?,
-				identifier_id       = ?,
-				anchor              = ?,
-				public              = ?,
-				removed_from_public = ?,
-				score               = ?,
-				updated_at          = ?
-			WHERE id = ?`,
-			entry.Title,
-			entry.Body,
-			entry.BodyRendered,
-			entry.Type,
-			entry.IdentifierID,
-			entry.Anchor,
-			entry.Public,
-			entry.RemovedFromPublic,
-			entry.Score,
-			time.Now(), entry.ID)
-		if err != nil {
-			return err
-		}
-	} else {
-		var res, err = db.Exec(`INSERT INTO entries (title, body, body_rendered, type, identifier_id, anchor, public, removed_from_public, score, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.Title, entry.Body, entry.BodyRendered, entry.Type, entry.IdentifierID, entry.Anchor, entry.Public, entry.RemovedFromPublic, entry.Score, author.ID, time.Now(), time.Now())
-		if err != nil {
-			return err
-		}
-		var insertID int64
-		insertID, err = res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		entry.ID = int(insertID)
-	}
-
-	if createVote {
-		// TODO initial vote
-		//         $vote = new Vote;
-		//         $vote->type = 1;
-		//         $vote->user_id = $user->id;
-		//         $vote->entry_id = $entry->id;
-		//         $vote->save();
-	}
-
-	for _, t := range entry.Teams {
-		var teamID int64
-		db.QueryRow(`SELECT id FROM teams WHERE name = ? LIMIT 1`, t).Scan(&teamID)
-		db.Exec(`INSERT INTO entry_team (entry_id, team_id) VALUES (?, ?)`, entry.ID, teamID)
-	}
-
-	return nil
-}
-
-func EntriesSave(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
-	var user = ctx.Value(UserKey).(*dash.User)
-
-	var payload eSaveRequest
-	json.NewDecoder(req.Body).Decode(&payload)
-
-	var entry = dash.Entry{
-		ID:         payload.EntryID,
-		Title:      payload.Title,
-		Type:       payload.Type,
-		Body:       payload.Body,
-		Public:     payload.Public,
-		Identifier: payload.IdentifierDict,
-		Anchor:     payload.Anchor,
-		Teams:      payload.Teams,
-	}
-	if err := upsertEntry(db, &entry, user); err != nil {
+	var res, err = db.Exec(`INSERT INTO entries (title, body, body_rendered, type, identifier_id, anchor, public, removed_from_public, score, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		entry.Title, entry.Body, entry.BodyRendered, entry.Type, entry.IdentifierID, entry.Anchor, entry.Public, entry.RemovedFromPublic, entry.Score, user.ID, time.Now(), time.Now())
+	if err != nil {
 		return err
 	}
+	var insertID int64
+	insertID, err = res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	entry.ID = int(insertID)
 
 	var vote = dash.Vote{
 		EntryID: entry.ID,
@@ -372,23 +389,31 @@ func EntriesSave(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	if _, err := db.Exec(`INSERT INTO votes (type, entry_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, vote.Type, vote.EntryID, vote.UserID, time.Now(), time.Now()); err != nil {
 		return err
 	}
+
+	for _, t := range entry.Teams {
+		var teamID int64
+		db.QueryRow(`SELECT id FROM teams WHERE name = ? LIMIT 1`, t).Scan(&teamID)
+		db.Exec(`INSERT INTO entry_team (entry_id, team_id) VALUES (?, ?)`, entry.ID, teamID)
+	}
+
 	updateEntryVoteScore(db, &entry)
 
-	json.NewEncoder(w).Encode(eSaveResponse{
+	json.NewEncoder(w).Encode(entrySaveResponse{
 		Entry:  entry,
 		Status: "success",
 	})
 	return nil
 }
 
-type eGetRequest struct {
+type entryGetRequest struct {
 	EntryID int `json:"entry_id"`
 }
-type eGetResponse struct {
-	Status          string `json:"status"`
-	Body            string `json:"body"`
-	BodyRendered    string `json:"body_rendered"`
-	GlobalModerator bool   `json:"global_moderator"`
+type entryGetResponse struct {
+	Status          string            `json:"status"`
+	Body            string            `json:"body"`
+	BodyRendered    string            `json:"body_rendered"`
+	Teams           []dash.TeamMember `json:"teams"`
+	GlobalModerator bool              `json:"global_moderator"`
 }
 
 type decoratedContext struct {
@@ -457,6 +482,7 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 	return string(dd)
 }
 
+// EntryGet returns the informations necessary for dash to display an annotation
 func EntryGet(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
@@ -467,17 +493,27 @@ func EntryGet(ctx context.Context, w http.ResponseWriter, req *http.Request) err
 	}
 
 	var vote, _ = findVoteByEntryAndUser(db, *entry, user)
-	var resp = eGetResponse{
+	var entryTeams = make([]dash.TeamMember, 0)
+	for _, team := range entry.Teams {
+		for _, membership := range user.TeamMemberships {
+			if membership.TeamName == team {
+				entryTeams = append(entryTeams, membership)
+			}
+		}
+	}
+
+	var resp = entryGetResponse{
 		Status:          "success",
 		Body:            entry.Body,
 		BodyRendered:    decorateBodyRendered(*entry, user, vote),
-		GlobalModerator: false,
+		Teams:           entryTeams,
+		GlobalModerator: user.Moderator,
 	}
 	json.NewEncoder(w).Encode(resp)
 	return nil
 }
 
-type voteRequest struct {
+type entryVoteRequest struct {
 	VoteType int `json:"vote_type"`
 	EntryID  int `json:"entry_id"`
 }
@@ -494,19 +530,16 @@ func updateEntryVoteScore(db *sql.DB, entry *dash.Entry) error {
 	return err
 }
 
+// EntryVote registers and updates the vote from the current user for a given annotation
 func EntryVote(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
 
-	var payload voteRequest
+	var payload entryVoteRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
-	var vote dash.Vote
-	var err error
-	if vote, err = findVoteByEntryAndUser(db, *entry, *user); err != nil {
-		return err
-	}
+	var vote, err = findVoteByEntryAndUser(db, *entry, *user)
 	vote.Type = payload.VoteType
 
 	if vote.ID != 0 {
@@ -525,12 +558,13 @@ func EntryVote(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	return nil
 }
 
+// EntryDelete removes an annotation entirely from dash
 func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
 
-	var payload eGetRequest
+	var payload entryGetRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	if entry.UserID != user.ID {
@@ -555,6 +589,7 @@ func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 	return nil
 }
 
+// EntryRemoveFromPublic allows an moderator to hide a public annotation
 func EntryRemoveFromPublic(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var user = ctx.Value(UserKey).(*dash.User)
 	if !user.Moderator {
@@ -574,12 +609,13 @@ func EntryRemoveFromPublic(ctx context.Context, w http.ResponseWriter, req *http
 	return nil
 }
 
+// EntryRemoveFromTeams allows a team moderator to hide an annotation from the team
 func EntryRemoveFromTeams(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
 	var entry = ctx.Value(EntryKey).(*dash.Entry)
 
-	var payload eGetRequest
+	var payload entryGetRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	var isTeamModerator = false

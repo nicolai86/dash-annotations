@@ -1,4 +1,4 @@
-package handlers
+package main
 
 import (
 	"bytes"
@@ -166,6 +166,10 @@ func findUserByUsername(db *sql.DB, username string) (dash.User, error) {
 	return findUserByCondition(db, `username = ?`, username)
 }
 
+func findUserByRememberToken(db *sql.DB, token string) (dash.User, error) {
+	return findUserByCondition(db, `remember_token = ?`, token)
+}
+
 func findUserByCondition(db *sql.DB, cond string, param interface{}) (dash.User, error) {
 	var user = dash.User{}
 	if err := db.QueryRow(`SELECT id, username, email, password, remember_token, moderator FROM users WHERE `+cond, param).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator); err != nil {
@@ -208,7 +212,7 @@ func Authenticated(h ContextHandler) ContextHandler {
 			return errors.New("Missing session cookie")
 		}
 
-		if user, err := findUserByCondition(db, `remember_token = ?`, sessionID); err != nil {
+		if user, err := findUserByRememberToken(db, sessionID); err != nil {
 			return err
 		} else {
 			ctx = context.WithValue(ctx, UserKey, &user)
@@ -218,6 +222,8 @@ func Authenticated(h ContextHandler) ContextHandler {
 	})
 }
 
+// MaybeAuthenticated is a middleware that tries to authenticate a user by the session.
+// If no authentication is present the request continues and the user is not set.
 func MaybeAuthenticated(h ContextHandler) ContextHandler {
 	return ContextHandlerFunc(func(ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
 		var db = ctx.Value(DBKey).(*sql.DB)
@@ -229,7 +235,7 @@ func MaybeAuthenticated(h ContextHandler) ContextHandler {
 			}
 		}
 		if sessionID != "" {
-			if user, err := findUserByCondition(db, `remember_token = ?`, sessionID); err == nil {
+			if user, err := findUserByRememberToken(db, sessionID); err == nil {
 				ctx = context.WithValue(ctx, UserKey, &user)
 			}
 		}

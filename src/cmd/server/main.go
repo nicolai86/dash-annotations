@@ -9,11 +9,8 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/net/context"
-
-	"handlers"
-
 	_ "github.com/go-sql-driver/mysql"
+	"golang.org/x/net/context"
 )
 
 func logHandler(next http.Handler) http.HandlerFunc {
@@ -42,7 +39,7 @@ func jsonHandler(next http.Handler) http.HandlerFunc {
 // as first arguments and return an error, to regular golang http handlers
 type ContextAdapter struct {
 	ctx     context.Context
-	handler handlers.ContextHandler
+	handler ContextHandler
 }
 
 // ServeHTTP implements the traditional golang net/http interface for a ContextAdapter
@@ -81,95 +78,95 @@ func main() {
 	}
 	defer db.Close()
 
-	var rootContext = handlers.NewRootContext(db)
+	var rootContext = NewRootContext(db)
 
 	mux.Handle("/users/register", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.ContextHandlerFunc(handlers.UsersRegister),
+		handler: ContextHandlerFunc(UserRegister),
 	})
 	mux.Handle("/users/login", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.ContextHandlerFunc(handlers.UserLogin),
+		handler: ContextHandlerFunc(UserLogin),
 	})
 	mux.Handle("/users/logout", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserLogout)),
+		handler: Authenticated(ContextHandlerFunc(UserLogout)),
 	})
 	mux.Handle("/users/password", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangePassword)),
+		handler: Authenticated(ContextHandlerFunc(UserChangePassword)),
 	})
 	mux.Handle("/users/email", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.UserChangeEmail)),
+		handler: Authenticated(ContextHandlerFunc(UserChangeEmail)),
 	})
 	// TODO(rr) add support for password forgotten requests /users/forgot/request
 	// TODO(rr) add support for password reset requests /users/forgot/reset
 
 	mux.Handle("/entries/list", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.MaybeAuthenticated(handlers.ContextHandlerFunc(handlers.EntriesList)),
+		handler: MaybeAuthenticated(ContextHandlerFunc(EntryList)),
 	})
 	mux.Handle("/entries/save", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
+		handler: Authenticated(WithEntry(ContextHandlerFunc(EntrySave))),
 	})
 	mux.Handle("/entries/create", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.EntriesSave)),
+		handler: Authenticated(ContextHandlerFunc(EntryCreate)),
 	})
 	mux.Handle("/entries/get", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.MaybeAuthenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryGet))),
+		handler: MaybeAuthenticated(WithEntry(ContextHandlerFunc(EntryGet))),
 	})
 	mux.Handle("/entries/vote", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryVote))),
+		handler: Authenticated(WithEntry(ContextHandlerFunc(EntryVote))),
 	})
 	mux.Handle("/entries/delete", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryDelete))),
+		handler: Authenticated(WithEntry(ContextHandlerFunc(EntryDelete))),
 	})
 	mux.Handle("/entries/remove_from_public", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromPublic))),
+		handler: Authenticated(WithEntry(ContextHandlerFunc(EntryRemoveFromPublic))),
 	})
 	mux.Handle("/entries/remove_from_teams", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithEntry(handlers.ContextHandlerFunc(handlers.EntryRemoveFromTeams))),
+		handler: Authenticated(WithEntry(ContextHandlerFunc(EntryRemoveFromTeams))),
 	})
 
 	mux.Handle("/teams/list", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamsList)),
+		handler: Authenticated(ContextHandlerFunc(TeamList)),
 	})
 	mux.Handle("/teams/create", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.ContextHandlerFunc(handlers.TeamCreate)),
+		handler: Authenticated(ContextHandlerFunc(TeamCreate)),
 	})
 	mux.Handle("/teams/join", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamJoin))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamJoin))),
 	})
 	mux.Handle("/teams/leave", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamLeave))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamLeave))),
 	})
 	mux.Handle("/teams/set_role", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetRole))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamSetRole))),
 	})
 	mux.Handle("/teams/remove_member", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamRemoveMember))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamRemoveMember))),
 	})
 	mux.Handle("/teams/set_access_key", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamSetAccessKey))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamSetAccessKey))),
 	})
 	mux.Handle("/teams/list_members", &ContextAdapter{
 		ctx:     rootContext,
-		handler: handlers.Authenticated(handlers.WithTeam(handlers.ContextHandlerFunc(handlers.TeamListMember))),
+		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamListMember))),
 	})
 
 	log.Printf("Listening on %q", listen)
