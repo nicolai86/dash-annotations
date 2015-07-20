@@ -571,15 +571,16 @@ func EntryDelete(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 		return ErrDeleteForbidden
 	}
 
-	if _, err := db.Exec(`DELETE FROM votes WHERE entry_id = ?`, entry.ID); err != nil {
+	var tx, err = db.Begin()
+	if err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`DELETE FROM entry_team WHERE entry_id = ?`, entry.ID); err != nil {
-		return err
-	}
+	tx.Exec(`DELETE FROM votes WHERE entry_id = ?`, entry.ID)
+	tx.Exec(`DELETE FROM entry_team WHERE entry_id = ?`, entry.ID)
+	tx.Exec(`DELETE FROM entries WHERE id = ?`, entry.ID)
 
-	if _, err := db.Exec(`DELETE FROM entries WHERE id = ?`, entry.ID); err != nil {
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 

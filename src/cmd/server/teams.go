@@ -65,28 +65,29 @@ func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		return ErrTeamNameMissing
 	}
 
-	var cnt = 0
-	var err = db.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
+	var tx, err = db.Begin()
 	if err != nil {
 		return err
 	}
+
+	var cnt = 0
+	tx.QueryRow(`SELECT count(*) FROM teams WHERE name = ?`, team.Name).Scan(&cnt)
+
 	if cnt != 0 {
 		return ErrTeamNameExists
 	}
 
-	if res, err := db.Exec(`INSERT INTO teams (name, access_key, created_at, updated_at) VALUES (?, ?, ?, ?)`, team.Name, "", time.Now(), time.Now()); err != nil {
+	var res, _ = tx.Exec(`INSERT INTO teams (name, access_key, created_at, updated_at) VALUES (?, ?, ?, ?)`, team.Name, "", time.Now(), time.Now())
+
+	var teamID int64
+	teamID, err = res.LastInsertId()
+	if err != nil {
 		return err
-	} else {
-
-		var teamID int64
-		teamID, err = res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		team.ID = int(teamID)
 	}
+	team.ID = int(teamID)
 
-	if _, err := db.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "owner"); err != nil {
+	tx.Exec(`INSERT INTO team_user (team_id, user_id, role) VALUES (?, ?, ?)`, team.ID, user.ID, "owner")
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 
@@ -133,14 +134,16 @@ func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 
 	var enc = json.NewEncoder(w)
 
-	var _, err = db.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, user.ID)
+	var tx, err = db.Begin()
 	if err != nil {
 		return err
 	}
 
+	tx.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, user.ID)
+
 	var entryIDs = make([]interface{}, 0)
 	var rows *sql.Rows
-	rows, err = db.Query(`SELECT e.id FROM entries e INNER JOIN entry_team et ON et.entry_id = e.id AND et.team_id = ? WHERE e.user_id = ?`, team.ID, user.ID)
+	rows, err = tx.Query(`SELECT e.id FROM entries e INNER JOIN entry_team et ON et.entry_id = e.id AND et.team_id = ? WHERE e.user_id = ?`, team.ID, user.ID)
 	defer rows.Close()
 	for rows.Next() {
 		var entryID int
@@ -152,26 +155,22 @@ func TeamLeave(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 
 	params := append([]interface{}{user.ID}, entryIDs...)
 	var query = fmt.Sprintf(`DELETE FROM votes WHERE user_id = ? AND entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, params...); err != nil {
-		return err
-	}
+	tx.Exec(query, params...)
 
 	query = fmt.Sprintf(`DELETE FROM entry_team WHERE entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, entryIDs...); err != nil {
-		return err
-	}
+	tx.Exec(query, entryIDs...)
 
 	query = fmt.Sprintf(`DELETE FROM entries WHERE id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, entryIDs...); err != nil {
-		return err
-	}
+	tx.Exec(query, entryIDs...)
 
 	var membershipCount = -1
-	db.QueryRow(`SELECT count(*) from team_user WHERE team_id = ?`, team.ID).Scan(&membershipCount)
+	tx.QueryRow(`SELECT count(*) from team_user WHERE team_id = ?`, team.ID).Scan(&membershipCount)
 	if membershipCount == 0 {
-		if _, err := db.Exec(`DELETE FROM teams WHERE id = ?`, team.ID); err != nil {
-			return err
-		}
+		tx.Exec(`DELETE FROM teams WHERE id = ?`, team.ID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 
 	enc.Encode(map[string]string{
@@ -250,13 +249,16 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 		return ErrUnknownUser
 	}
 
-	if _, err := db.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, target.ID); err != nil {
+	var tx *sql.Tx
+	if tx, err = db.Begin(); err != nil {
 		return err
 	}
 
+	tx.Exec(`DELETE FROM team_user WHERE team_id = ? AND user_id = ?`, team.ID, target.ID)
+
 	var entryIDs = make([]interface{}, 0)
 	var rows *sql.Rows
-	rows, err = db.Query(`SELECT e.id FROM entries e INNER JOIN entry_team et ON et.entry_id = e.id AND et.team_id = ? WHERE e.user_id = ?`, team.ID, target.ID)
+	rows, err = tx.Query(`SELECT e.id FROM entries e INNER JOIN entry_team et ON et.entry_id = e.id AND et.team_id = ? WHERE e.user_id = ?`, team.ID, target.ID)
 	defer rows.Close()
 	if err != nil {
 		return err
@@ -271,17 +273,15 @@ func TeamRemoveMember(ctx context.Context, w http.ResponseWriter, req *http.Requ
 
 	params := append([]interface{}{target.ID}, entryIDs...)
 	var query = fmt.Sprintf(`DELETE FROM votes WHERE user_id = ? AND entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, params...); err != nil {
-		return err
-	}
+	tx.Exec(query, params...)
 
 	query = fmt.Sprintf(`DELETE FROM entry_team WHERE entry_id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, entryIDs...); err != nil {
-		return err
-	}
+	tx.Exec(query, entryIDs...)
 
 	query = fmt.Sprintf(`DELETE FROM entries WHERE id IN (%s) `, strings.Join(strings.Split(strings.Repeat("?", len(entryIDs)), ""), ","))
-	if _, err := db.Exec(query, entryIDs...); err != nil {
+	tx.Exec(query, entryIDs...)
+
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 

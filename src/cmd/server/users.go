@@ -27,8 +27,6 @@ type userRegisterRequest struct {
 	Password string `json:"password"`
 }
 
-const userRegisterQuery = `INSERT INTO users (username, password, created_at, updated_at) VALUES (?, ?, ?, ?)`
-
 // UserRegister tries to create a new user inside the dash annotations database
 func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
@@ -45,7 +43,7 @@ func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request)
 	}
 	u.ChangePassword(payload.Password)
 
-	if _, err := db.Exec(userRegisterQuery, u.Username, u.EncryptedPassword, time.Now(), time.Now()); err != nil {
+	if _, err := db.Exec(`INSERT INTO users (username, password, created_at, updated_at) VALUES (?, ?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now(), time.Now()); err != nil {
 		return err
 	}
 
@@ -70,8 +68,6 @@ type userLoginRequest struct {
 	Password string `json:"password"`
 }
 
-const userLoginLogoutQuery = `UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`
-
 // UserLogin tries to authenticate an existing user using username/ password combination
 func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
@@ -93,7 +89,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		Valid:  true,
 	}
 
-	if _, err := db.Exec(userLoginLogoutQuery, user.RememberToken, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -112,7 +108,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		}
 	}
 
-	// TODO(rr) the remembertoken should be part of the session cookie, not the session cookie
+	// TODO(rr) the remember_token should be part of the session cookie, not the session cookie
 	ckie.Value = user.RememberToken.String
 	ckie.MaxAge = 7200
 	ckie.Expires = time.Now().Add(7200 * time.Second)
@@ -146,7 +142,7 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		Valid: true,
 	}
 
-	if _, err := db.Exec(userLoginLogoutQuery, user.RememberToken, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -160,8 +156,6 @@ type userChangePasswordRequest struct {
 	Password string `json:"password"`
 }
 
-const userChangePasswordQuery = `UPDATE users SET password = ?, updated_at = ? WHERE id = ?`
-
 // UserChangePassword changes the encrypted password of the current user
 func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var db = ctx.Value(DBKey).(*sql.DB)
@@ -171,7 +165,7 @@ func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Re
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	user.ChangePassword(payload.Password)
-	if _, err := db.Exec(userChangePasswordQuery, user.EncryptedPassword, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID); err != nil {
 		return err
 	}
 
@@ -184,8 +178,6 @@ func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Re
 type userChangeEmailRequest struct {
 	Email string `json:"email"`
 }
-
-const userChangeEmailQuery = `UPDATE users SET email = ?, updated_at = ? WHERE id = ?`
 
 // UserChangeEmail changes the email address of the current user
 func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
@@ -202,7 +194,7 @@ func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Reque
 	}
 
 	user.Email = sql.NullString{String: payload.Email, Valid: true}
-	if _, err := db.Exec(userChangeEmailQuery, user.Email, time.Now(), user.ID); err != nil {
+	if _, err := db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID); err != nil {
 		return err
 	}
 
