@@ -52,14 +52,10 @@ func findByTeamAndIdentifier(db *sql.DB, identifier dash.Identifier, user dash.U
 		return nil, nil
 	}
 
-	if err := upsertIdentifier(db, &identifier); err != nil {
-		return nil, err
-	}
-
 	var query = fmt.Sprintf(`SELECT e.id, e.title, e.type, e.anchor, e.body, e.body_rendered, e.score, e.user_id
 		FROM entries e
 		INNER JOIN entry_team et ON et.entry_id = e.id
-		WHERE identifier_id = ?
+		WHERE e.identifier_id = ?
 			AND et.removed_from_team = ?
 			AND e.user_id != ?
 			AND et.team_id IN (%s)
@@ -87,10 +83,6 @@ func findByTeamAndIdentifier(db *sql.DB, identifier dash.Identifier, user dash.U
 }
 
 func findPublicByIdentifier(db *sql.DB, identifier dash.Identifier, user *dash.User) ([]dash.Entry, error) {
-	if err := upsertIdentifier(db, &identifier); err != nil {
-		return nil, err
-	}
-
 	var query = `SELECT
     e.id,
     e.title,
@@ -145,19 +137,15 @@ func findPublicByIdentifier(db *sql.DB, identifier dash.Identifier, user *dash.U
 }
 
 func findOwnByIdentifier(db *sql.DB, identifier dash.Identifier, user *dash.User) ([]dash.Entry, error) {
-	if err := upsertIdentifier(db, &identifier); err != nil {
-		return nil, err
-	}
-
 	if user == nil {
 		return nil, nil
 	}
 
-	var rows, err = db.Query(`SELECT id, title, type, anchor, body, body_rendered, score, user_id FROM entries WHERE user_id = ?`, user.ID)
-	defer rows.Close()
+	var rows, err = db.Query(`SELECT id, title, type, anchor, body, body_rendered, score, user_id FROM entries WHERE user_id = ? AND identifier_id = ?`, user.ID, identifier.ID)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	var entries = make([]dash.Entry, 0)
 	for rows.Next() {
@@ -194,6 +182,10 @@ func EntryList(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	var listReq entryListRequest
 	dec.Decode(&listReq)
 	var enc = json.NewEncoder(w)
+
+	if err := upsertIdentifier(db, &listReq.Identifier); err != nil {
+		return err
+	}
 
 	var public, own, team []dash.Entry
 	var err error
