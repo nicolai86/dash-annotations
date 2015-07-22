@@ -415,7 +415,6 @@ type decoratedContext struct {
 }
 
 func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) string {
-	var html *template.Template
 	var err error
 
 	var fns = template.FuncMap{
@@ -458,7 +457,8 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 			return isModerator
 		},
 	}
-	html, err = template.New("get.html").Funcs(fns).ParseFiles("./templates/entries/get.html", "./templates/entries/uncss.css")
+	var htmlTemplate, _ = Asset("templates/entries/get.html")
+	html := (*template.Template)(template.Must(template.New("get.html").Funcs(fns).Parse(string(htmlTemplate))))
 	if err != nil {
 		log.Panic(err)
 	}
@@ -470,6 +470,9 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 	}
 
 	err = html.Execute(&tmp, &c)
+	if err != nil {
+		log.Panic(err)
+	}
 	var dd, _ = ioutil.ReadAll(&tmp)
 	return string(dd)
 }

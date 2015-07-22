@@ -1,5 +1,7 @@
 package main
 
+//go:generate go-bindata -pkg main -o bindata.go templates/entries/
+
 import (
 	"database/sql"
 	"encoding/json"
