@@ -2,6 +2,12 @@
 
 a Dash 3 compatible annotations server written in go
 
+## features
+
+- tiny footprint & minimal dependencies
+- supports mysql & sqlite3
+- full offline support (annotation rendering does not load bootstrap from cdn)
+
 ## Usage
 
 Assuming you're trying to get the annotations backend up and running for the first time:
@@ -39,7 +45,8 @@ cat <<EOF > $HOME/Library/LaunchAgents/rra.kapeli.annotations.plist
   <key>ProgramArguments</key>
   <array>
     <string>$GOPATH/src/github.com/nicolai86/dash-annotations/bin/server</string>
-    <string>--datasource="root@/dash3"</string>
+    <string>--driver=sqlite3</string>
+    <string>--datasource="$HOME/Library/dash-annotations/dash.sqlite3"</string>
     <string>--session.secret=1234123412341234</string>
     <string>--listen=127.0.0.1:54111</string>
   </array>
