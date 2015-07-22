@@ -28,4 +28,3 @@ Assuming you're trying to get the annotations backend up and running for the fir
 ## TODO
 
 - forgotten password handling (request/ reset)
-- properly encrypting the sessions

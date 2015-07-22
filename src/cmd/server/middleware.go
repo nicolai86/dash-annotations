@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +17,50 @@ import (
 
 	"golang.org/x/net/context"
 )
+
+var encryptionKey = "1234567812345678"
+
+func encrypt(b []byte) ([]byte, error) {
+	var block, err = aes.NewCipher([]byte(encryptionKey))
+
+	if err != nil {
+		return nil, err
+	}
+
+	encrypted := make([]byte, aes.BlockSize+len(b))
+	iv := encrypted[:aes.BlockSize]
+
+	encrypter := cipher.NewCFBEncrypter(block, iv)
+	encrypter.XORKeyStream(encrypted[aes.BlockSize:], b)
+
+	var encoded = make([]byte, base64.URLEncoding.EncodedLen(len(encrypted)))
+	base64.URLEncoding.Encode(encoded, encrypted)
+
+	return encoded, nil
+}
+
+func decrypt(encrypted []byte) ([]byte, error) {
+	var decoded = make([]byte, base64.URLEncoding.DecodedLen(len(encrypted)))
+	base64.URLEncoding.Decode(decoded, encrypted)
+	encrypted = decoded
+
+	var block, err = aes.NewCipher([]byte(encryptionKey))
+
+	if err != nil {
+		return nil, err
+	}
+
+	iv := encrypted[:aes.BlockSize]
+
+	encrypted = encrypted[aes.BlockSize:]
+
+	decrypter := cipher.NewCFBDecrypter(block, iv)
+
+	decrypted := make([]byte, len(encrypted))
+	decrypter.XORKeyStream(decrypted, encrypted)
+
+	return decrypted, nil
+}
 
 // NewRootContext returns a context with the database set. This serves as the root
 // context for all other contexts
@@ -202,20 +249,24 @@ func Authenticated(h ContextHandler) ContextHandler {
 	return ContextHandlerFunc(func(ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
 		var db = ctx.Value(DBKey).(*sql.DB)
 
-		var sessionID = ""
+		var encryptedSessionID = ""
 		for _, cookie := range req.Cookies() {
 			if cookie.Name == "laravel_session" {
-				sessionID = cookie.Value
+				encryptedSessionID = cookie.Value
 			}
 		}
-		if sessionID == "" {
+		if encryptedSessionID == "" {
 			return errors.New("Missing session cookie")
 		}
 
-		if user, err := findUserByRememberToken(db, sessionID); err != nil {
+		if sessionID, err := decrypt([]byte(encryptedSessionID)); err != nil {
 			return err
 		} else {
-			ctx = context.WithValue(ctx, UserKey, &user)
+			if user, err := findUserByRememberToken(db, string(sessionID)); err != nil {
+				return err
+			} else {
+				ctx = context.WithValue(ctx, UserKey, &user)
+			}
 		}
 
 		return h.ServeHTTPContext(ctx, rw, req)
@@ -228,15 +279,17 @@ func MaybeAuthenticated(h ContextHandler) ContextHandler {
 	return ContextHandlerFunc(func(ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
 		var db = ctx.Value(DBKey).(*sql.DB)
 
-		var sessionID = ""
+		var encryptedSessionID = ""
 		for _, cookie := range req.Cookies() {
 			if cookie.Name == "laravel_session" {
-				sessionID = cookie.Value
+				encryptedSessionID = cookie.Value
 			}
 		}
-		if sessionID != "" {
-			if user, err := findUserByRememberToken(db, sessionID); err == nil {
-				ctx = context.WithValue(ctx, UserKey, &user)
+		if encryptedSessionID != "" {
+			if sessionID, err := decrypt([]byte(encryptedSessionID)); err == nil {
+				if user, err := findUserByRememberToken(db, string(sessionID)); err == nil {
+					ctx = context.WithValue(ctx, UserKey, &user)
+				}
 			}
 		}
 

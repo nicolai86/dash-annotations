@@ -65,6 +65,7 @@ func main() {
 	flag.StringVar(&driverName, "driver", "mysql", "database driver to use. see github.com/rubenv/sql-migrate for details.")
 	flag.StringVar(&dataSource, "datasource", "", "datasource to be used with the database driver. mysql/pg REVDSN")
 	flag.StringVar(&listen, "listen", ":8000", "interface & port to listen on")
+	flag.StringVar(&encryptionKey, "session.secret", "1234567812345678", "secret used to encrypt sessions. must have either 16, 24 or 32 bytes length")
 	flag.Parse()
 
 	if dataSource == "" {

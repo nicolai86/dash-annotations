@@ -108,13 +108,15 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 
 	if ckie == nil {
 		ckie = &http.Cookie{
-			Name:  "laravel_session",
-			Value: sessionID,
+			Name: "laravel_session",
 		}
 	}
 
-	// TODO(rr) the remember_token should be part of the session cookie, not the session cookie
-	ckie.Value = user.RememberToken.String
+	if encryptedSessionID, err := encrypt([]byte(sessionID)); err != nil {
+		return err
+	} else {
+		ckie.Value = string(encryptedSessionID)
+	}
 	ckie.MaxAge = 7200
 	ckie.Expires = time.Now().Add(7200 * time.Second)
 	ckie.Path = "/"
