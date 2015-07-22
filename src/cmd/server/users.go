@@ -1,10 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -53,19 +54,22 @@ func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request)
 	return nil
 }
 
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
-}
-
 type userLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+func generateRandomBytes(n int) ([]byte, error) {
+	var b = make([]byte, n)
+	var _, err = rand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+func generateRandomString(s int) (string, error) {
+	var b, err = generateRandomBytes(s)
+	return base64.URLEncoding.EncodeToString(b), err
 }
 
 // UserLogin tries to authenticate an existing user using username/ password combination
@@ -84,8 +88,9 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		return ErrInvalidLogin
 	}
 
+	var sessionID, _ = generateRandomString(32)
 	user.RememberToken = sql.NullString{
-		String: randSeq(32),
+		String: sessionID,
 		Valid:  true,
 	}
 
@@ -104,7 +109,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	if ckie == nil {
 		ckie = &http.Cookie{
 			Name:  "laravel_session",
-			Value: user.RememberToken.String,
+			Value: sessionID,
 		}
 	}
 
