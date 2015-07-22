@@ -8,6 +8,12 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/mattn/go-sqlite3",
+			"repository": "https://github.com/mattn/go-sqlite3",
+			"revision": "b4142c444a8941d0d92b0b7103a24df9cd815e42",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/rubenv/sql-migrate",
 			"repository": "https://github.com/rubenv/sql-migrate",
 			"revision": "53184e1edfb4f9655b0fa8dd2c23e7763f452bda",

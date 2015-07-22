@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -81,6 +82,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 
 	var user, err = findUserByUsername(db, payload.Username)
 	if err != nil {
+		fmt.Printf("unknown user: %v", err)
 		return ErrInvalidLogin
 	}
 

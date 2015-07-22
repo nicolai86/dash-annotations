@@ -14,11 +14,11 @@ Assuming you're trying to get the annotations backend up and running for the fir
 
 - run the migrations:
 
-    ```$ ./bin/migrate -datasource="root:@/dash3?parseTime=true"```
+    ```$ ./bin/migrate -datasource="root:@/dash3?parseTime=true" -driver=mysql```
 
 - start the api:
 
-    ```$ ./bin/server --datasource="root@/dash3"```
+    ```$ ./bin/server -datasource="root@/dash3" -driver=mysql```
 
 - lastly, instruct dash to talk to your API instead of the public api:
 

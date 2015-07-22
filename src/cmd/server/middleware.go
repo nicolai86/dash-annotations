@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strings"
 
 	"dash"
 
@@ -105,7 +104,6 @@ func findEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
 	var entry = dash.Entry{
 		ID: entryID,
 	}
-	var rawTeams string
 	var err = db.QueryRow(`SELECT
 				e.title,
 				e.type,
@@ -116,8 +114,7 @@ func findEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
 				e.user_id,
 				e.removed_from_public,
 				e.public,
-				u.username,
-				COALESCE((select group_concat(distinct t.name SEPARATOR '||||') FROM teams AS t inner join entry_team ON t.id = entry_team.team_id where entry_team.entry_id = e.id), '')
+				u.username
 			FROM entries AS e
 			INNER JOIN users AS u ON u.id = e.user_id
 			WHERE e.id = ?`, entryID,
@@ -131,11 +128,27 @@ func findEntryByID(db *sql.DB, entryID int) (dash.Entry, error) {
 		&entry.UserID,
 		&entry.RemovedFromPublic,
 		&entry.Public,
-		&entry.AuthorUsername,
-		&rawTeams)
-	if rawTeams != "" {
-		entry.Teams = strings.Split(rawTeams, "||||")
+		&entry.AuthorUsername)
+	if err != nil {
+		return entry, err
 	}
+
+	var rows *sql.Rows
+	rows, err = db.Query(`select t.name FROM teams AS t inner join entry_team ON t.id = entry_team.team_id where entry_team.entry_id = ?`, entryID)
+	if err != nil {
+		return entry, err
+	}
+	defer rows.Close()
+	entry.Teams = make([]string, 0)
+
+	for rows.Next() {
+		var teamName string
+		if err := rows.Scan(&teamName); err != nil {
+			return entry, err
+		}
+		entry.Teams = append(entry.Teams, teamName)
+	}
+
 	return entry, err
 }
 
