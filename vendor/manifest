@@ -14,6 +14,12 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/microcosm-cc/bluemonday",
+			"repository": "https://github.com/microcosm-cc/bluemonday",
+			"revision": "cb3660f44463dfacda51a0bfdd6b7524c22e2ecb",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/rubenv/sql-migrate",
 			"repository": "https://github.com/rubenv/sql-migrate",
 			"revision": "53184e1edfb4f9655b0fa8dd2c23e7763f452bda",
@@ -37,6 +43,27 @@
 			"revision": "d9558e5c97f85372afee28cf2b6059d7d3818919",
 			"branch": "master",
 			"path": "/context"
+		},
+		{
+			"importpath": "golang.org/x/net/html",
+			"repository": "https://go.googlesource.com/net",
+			"revision": "446d52dd4018303a13b36097e26d0888aca5d6ef",
+			"branch": "master",
+			"path": "/html"
+		},
+		{
+			"importpath": "golang.org/x/text/encoding",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "3eb7007b740b66a77f3c85f2660a0240b284115a",
+			"branch": "master",
+			"path": "/encoding"
+		},
+		{
+			"importpath": "golang.org/x/text/transform",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "3eb7007b740b66a77f3c85f2660a0240b284115a",
+			"branch": "master",
+			"path": "/transform"
 		},
 		{
 			"importpath": "gopkg.in/gorp.v1",

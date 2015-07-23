@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/russross/blackfriday"
 	"golang.org/x/net/context"
 
@@ -282,7 +283,7 @@ func EntrySave(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	if !user.Moderator && entry.UserID != user.ID {
 		return ErrUpdateForbidden
 	}
-	entry.BodyRendered = string(blackfriday.MarkdownCommon([]byte(entry.Body)))
+	entry.BodyRendered = string(bluemonday.UGCPolicy().SanitizeBytes(blackfriday.MarkdownCommon([]byte(entry.Body))))
 
 	var _, err = db.Exec(`UPDATE entries SET
 			title               = ?,
@@ -359,7 +360,7 @@ func EntryCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) 
 		return ErrPublicAnnotationForbidden
 	}
 	entry.IdentifierID = entry.Identifier.ID
-	entry.BodyRendered = string(blackfriday.MarkdownCommon([]byte(entry.Body)))
+	entry.BodyRendered = string(bluemonday.UGCPolicy().SanitizeBytes(blackfriday.MarkdownCommon([]byte(entry.Body))))
 
 	var res, err = db.Exec(`INSERT INTO entries (title, body, body_rendered, type, identifier_id, anchor, public, removed_from_public, score, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entry.Title, entry.Body, entry.BodyRendered, entry.Type, entry.IdentifierID, entry.Anchor, entry.Public, entry.RemovedFromPublic, entry.Score, user.ID, time.Now(), time.Now())
