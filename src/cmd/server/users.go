@@ -16,6 +16,10 @@ import (
 )
 
 var (
+	// ErrUsernameMissing is returned for registration if missing the username parameter
+	ErrUsernameMissing = errors.New("Missing parameter: username")
+	// ErrPasswordMissing is returned for registration is missing the password parameter
+	ErrPasswordMissing = errors.New("Missing parameter: password")
 	// ErrUsernameExists is returned for registration attempts where the username is taken
 	ErrUsernameExists = errors.New("A user with this username already exists")
 	// ErrInvalidLogin is returned if the login request fails, either because the username or password is wrong
@@ -36,6 +40,13 @@ func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request)
 	var payload userRegisterRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
+	if payload.Username == "" {
+		return ErrUsernameMissing
+	}
+	if payload.Password == "" {
+		return ErrPasswordMissing
+	}
+
 	if _, err := findUserByUsername(db, payload.Username); err == nil {
 		return ErrUsernameExists
 	}
@@ -49,6 +60,7 @@ func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request)
 		return err
 	}
 
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 	})
