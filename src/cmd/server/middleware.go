@@ -87,6 +87,9 @@ type key int
 // UserKey is used to fetch the current user from a context
 const UserKey key = 0
 
+// UserStoreKey is used to fetch a the user storage
+const UserStoreKey key = 10
+
 // DBKey is used to fetch the database connection from a context
 const DBKey key = 1
 
@@ -222,39 +225,6 @@ func WithTeam(h ContextHandler) ContextHandler {
 	})
 }
 
-func findUserByUsername(db *sql.DB, username string) (dash.User, error) {
-	return findUserByCondition(db, `username = ?`, username)
-}
-
-func findUserByRememberToken(db *sql.DB, token string) (dash.User, error) {
-	return findUserByCondition(db, `remember_token = ?`, token)
-}
-
-func findUserByCondition(db *sql.DB, cond string, param interface{}) (dash.User, error) {
-	var user = dash.User{}
-	if err := db.QueryRow(`SELECT id, username, email, password, remember_token, moderator FROM users WHERE `+cond, param).Scan(&user.ID, &user.Username, &user.Email, &user.EncryptedPassword, &user.RememberToken, &user.Moderator); err != nil {
-		return user, err
-	}
-
-	var rows, err = db.Query(`SELECT t.id, t.name, tm.role FROM team_user AS tm INNER JOIN teams AS t ON t.id = tm.team_id WHERE tm.user_id = ?`, user.ID)
-	if err != nil {
-		return user, err
-	}
-	defer rows.Close()
-
-	var memberships = make([]dash.TeamMember, 0)
-	for rows.Next() {
-		var membership = dash.TeamMember{}
-		if err := rows.Scan(&membership.TeamID, &membership.TeamName, &membership.Role); err != nil {
-			return user, err
-		}
-		memberships = append(memberships, membership)
-	}
-
-	user.TeamMemberships = memberships
-	return user, nil
-}
-
 // Authenticated is a middleware that checks for authentication in the request
 // Authentication is identified using the laravel_session cookie.
 // If no authentication is present the request is halted.
@@ -279,6 +249,7 @@ func Authenticated(h ContextHandler) ContextHandler {
 				return err
 			} else {
 				ctx = context.WithValue(ctx, UserKey, &user)
+				ctx = context.WithValue(ctx, UserStoreKey, &sqlUserStorage{db: db})
 			}
 		}
 

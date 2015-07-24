@@ -2,11 +2,9 @@ package main
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -16,10 +14,10 @@ import (
 )
 
 var (
-	// ErrUsernameMissing is returned for registration if missing the username parameter
-	ErrUsernameMissing = errors.New("Missing parameter: username")
-	// ErrPasswordMissing is returned for registration is missing the password parameter
-	ErrPasswordMissing = errors.New("Missing parameter: password")
+	// ErrMissingUsername is returned for registration if missing the username parameter
+	ErrMissingUsername = errors.New("Missing parameter: username")
+	// ErrMissingPassword is returned for registration is missing the password parameter
+	ErrMissingPassword = errors.New("Missing parameter: password")
 	// ErrUsernameExists is returned for registration attempts where the username is taken
 	ErrUsernameExists = errors.New("A user with this username already exists")
 	// ErrInvalidLogin is returned if the login request fails, either because the username or password is wrong
@@ -35,28 +33,18 @@ type userRegisterRequest struct {
 
 // UserRegister tries to create a new user inside the dash annotations database
 func UserRegister(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
-
 	var payload userRegisterRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
 	if payload.Username == "" {
-		return ErrUsernameMissing
+		return ErrMissingUsername
 	}
 	if payload.Password == "" {
-		return ErrPasswordMissing
+		return ErrMissingPassword
 	}
 
-	if _, err := findUserByUsername(db, payload.Username); err == nil {
-		return ErrUsernameExists
-	}
-
-	var u = dash.User{
-		Username: payload.Username,
-	}
-	u.ChangePassword(payload.Password)
-
-	if _, err := db.Exec(`INSERT INTO users (username, password, created_at, updated_at) VALUES (?, ?, ?, ?)`, u.Username, u.EncryptedPassword, time.Now(), time.Now()); err != nil {
+	var store = ctx.Value(UserStoreKey).(UserCreater)
+	if err := store.InsertUser(payload.Username, payload.Password); err != nil {
 		return err
 	}
 
@@ -87,14 +75,19 @@ func generateRandomString(s int) (string, error) {
 
 // UserLogin tries to authenticate an existing user using username/ password combination
 func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
-
 	var payload userLoginRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
-	var user, err = findUserByUsername(db, payload.Username)
+	if payload.Username == "" {
+		return ErrMissingUsername
+	}
+	if payload.Password == "" {
+		return ErrMissingPassword
+	}
+
+	var loginStore = ctx.Value(UserStoreKey).(UserLoginStore)
+	var user, err = loginStore.FindUserByUsername(payload.Username)
 	if err != nil {
-		fmt.Printf("unknown user: %v", err)
 		return ErrInvalidLogin
 	}
 
@@ -103,12 +96,8 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 	}
 
 	var sessionID, _ = generateRandomString(32)
-	user.RememberToken = sql.NullString{
-		String: sessionID,
-		Valid:  true,
-	}
 
-	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
+	if err := loginStore.UpdateUserWithToken(user.Username, sessionID); err != nil {
 		return err
 	}
 
@@ -150,7 +139,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 
 // UserLogout destroys the session of the current user
 func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
+	var tokenStore = ctx.Value(UserStoreKey).(UserTokenUpdater)
 	var user = ctx.Value(UserKey).(*dash.User)
 
 	http.SetCookie(w, &http.Cookie{
@@ -159,11 +148,7 @@ func UserLogout(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		MaxAge: -1,
 	})
 
-	user.RememberToken = sql.NullString{
-		Valid: true,
-	}
-
-	if _, err := db.Exec(`UPDATE users SET remember_token = ?, updated_at = ? WHERE id = ?`, user.RememberToken, time.Now(), user.ID); err != nil {
+	if err := tokenStore.UpdateUserWithToken(user.Username, ""); err != nil {
 		return err
 	}
 
@@ -179,14 +164,13 @@ type userChangePasswordRequest struct {
 
 // UserChangePassword changes the encrypted password of the current user
 func UserChangePassword(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
 	var user = ctx.Value(UserKey).(*dash.User)
+	var passwordUpdater = ctx.Value(UserStoreKey).(UserPasswordUpdater)
 
 	var payload userChangePasswordRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
-	user.ChangePassword(payload.Password)
-	if _, err := db.Exec(`UPDATE users SET password = ?, updated_at = ? WHERE id = ?`, user.EncryptedPassword, time.Now(), user.ID); err != nil {
+	if err := passwordUpdater.UpdateUserWithPassword(user.Username, payload.Password); err != nil {
 		return err
 	}
 
@@ -202,20 +186,13 @@ type userChangeEmailRequest struct {
 
 // UserChangeEmail changes the email address of the current user
 func UserChangeEmail(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
-	var db = ctx.Value(DBKey).(*sql.DB)
+	var emailUpdater = ctx.Value(UserStoreKey).(UserEmailUpdater)
 	var user = ctx.Value(UserKey).(*dash.User)
 
 	var payload userChangeEmailRequest
 	json.NewDecoder(req.Body).Decode(&payload)
 
-	var existingUserID = -1
-	db.QueryRow(`SELECT id FROM users WHERE email = ?`, payload.Email).Scan(&existingUserID)
-	if existingUserID != -1 {
-		return ErrEmailExists
-	}
-
-	user.Email = sql.NullString{String: payload.Email, Valid: true}
-	if _, err := db.Exec(`UPDATE users SET email = ?, updated_at = ? WHERE id = ?`, user.Email, time.Now(), user.ID); err != nil {
+	if err := emailUpdater.UpdateUserWithEmail(user.Username, payload.Email); err != nil {
 		return err
 	}
 

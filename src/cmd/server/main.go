@@ -82,7 +82,8 @@ func main() {
 	}
 	defer db.Close()
 
-	var rootContext = NewRootContext(db)
+	var userStorage = &sqlUserStorage{db: db}
+	var rootContext = context.WithValue(NewRootContext(db), UserStoreKey, userStorage)
 
 	mux.Handle("/users/register", &ContextAdapter{
 		ctx:     rootContext,
