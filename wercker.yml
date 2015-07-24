@@ -1,0 +1,39 @@
+box:
+  id: google/golang
+
+services:
+  - id: mariadb
+    # your credential for dock hub
+    username: $USERNAME
+    password: $PASSWORD
+    tag: latest
+
+    # set the required environment variables
+    env:
+      MYSQL_USER_NAME:     "root"
+      MYSQL_ROOT_PASSWORD: "test"
+      MYSQL_DATABASE:      "dash3_test"
+
+
+build:
+  steps:
+    - script:
+        name: install gb
+        code: |
+          go get github.com/constabulary/gb/...
+
+    - script:
+        name: build dash-annotations
+        code: |
+          gb build
+
+    - script:
+        name: migrate the database
+        code: |
+          bin/migrate -driver=mysql -datasource="root:test@tcp($MARIADB_PORT_3306_TCP_ADDR:$MARIADB_PORT_3306_TCP_PORT)/dash3_test?parseTime=true"
+
+    - script:
+        name: run the tests
+        code: |
+          gb test
+
