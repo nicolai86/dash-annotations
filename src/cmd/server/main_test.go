@@ -23,10 +23,21 @@ func clearDatabase(db *sql.DB) {
 
 var (
 	rootCtx context.Context
+	db      *sql.DB
 )
 
 func TestMain(m *testing.M) {
-	var db, err = sql.Open("mysql", "root@/dash3_test")
+	var driver = os.Getenv("TEST_DRIVER")
+	if driver == "" {
+		driver = "mysql"
+	}
+	var datasource = os.Getenv("TEST_DATASOURCE")
+	if datasource == "" {
+		datasource = "root@/dash3_test"
+	}
+
+	var err error
+	db, err = sql.Open(driver, datasource)
 	if err != nil {
 		log.Panicf("failed to connect to database")
 	}

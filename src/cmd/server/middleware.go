@@ -17,7 +17,17 @@ import (
 	"golang.org/x/net/context"
 )
 
-var encryptionKey = "1234567812345678"
+var (
+	encryptionKey = "1234567812345678"
+	// ErrAuthenticationRequired is returned from Authenticated middleware if the session can not be matched to an existing user
+	ErrAuthenticationRequired = errors.New("Authentication required")
+	// ErrTeamUnknown is returned when a name cannot be matched to the requested team name
+	ErrTeamUnknown = errors.New("Unknown team")
+	// ErrEntryUnknown is returned if the entry_id cannot be matched to the requested entry_id
+	ErrEntryUnknown = errors.New("Unknown entry")
+	// ErrMissingEntryID is returned if the entry_id parameter is empty or not present
+	ErrMissingEntryID = errors.New("Missing parameter: entry_id")
+)
 
 func encrypt(b []byte) ([]byte, error) {
 	var block, err = aes.NewCipher([]byte(encryptionKey))
@@ -40,8 +50,8 @@ func encrypt(b []byte) ([]byte, error) {
 
 func decrypt(encrypted []byte) ([]byte, error) {
 	var decoded = make([]byte, base64.URLEncoding.DecodedLen(len(encrypted)))
-	base64.URLEncoding.Decode(decoded, encrypted)
-	encrypted = decoded
+	var n, _ = base64.URLEncoding.Decode(decoded, encrypted)
+	encrypted = decoded[:n]
 
 	var block, err = aes.NewCipher([]byte(encryptionKey))
 
@@ -171,12 +181,12 @@ func WithEntry(h ContextHandler) ContextHandler {
 		dec.Decode(&payload)
 
 		if payload.EntryID == 0 {
-			return errors.New("Missing parameter: entry_id")
+			return ErrMissingEntryID
 		}
 
 		var entry, err = findEntryByID(db, payload.EntryID)
 		if err != nil {
-			return errors.New("Unknown entry")
+			return ErrEntryUnknown
 		}
 
 		ctx = context.WithValue(ctx, EntryKey, &entry)
@@ -212,12 +222,12 @@ func WithTeam(h ContextHandler) ContextHandler {
 		dec.Decode(&payload)
 
 		if payload.TeamName == "" {
-			return ErrTeamNameMissing
+			return ErrMissingTeamName
 		}
 
 		var team, err = findTeamByName(db, payload.TeamName)
 		if err != nil {
-			return errors.New("Unknown team name")
+			return ErrTeamUnknown
 		}
 
 		ctx = context.WithValue(ctx, TeamKey, &team)
@@ -246,7 +256,7 @@ func Authenticated(h ContextHandler) ContextHandler {
 			return err
 		} else {
 			if user, err := findUserByRememberToken(db, string(sessionID)); err != nil {
-				return err
+				return ErrAuthenticationRequired
 			} else {
 				ctx = context.WithValue(ctx, UserKey, &user)
 				ctx = context.WithValue(ctx, UserStoreKey, &sqlUserStorage{db: db})

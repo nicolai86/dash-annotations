@@ -34,11 +34,6 @@ type UserCreater interface {
 	InsertUser(username, password string) error
 }
 
-type UserLoginStore interface {
-	UserFinderByUsername
-	UserTokenUpdater
-}
-
 type sqlUserStorage struct {
 	db *sql.DB
 }

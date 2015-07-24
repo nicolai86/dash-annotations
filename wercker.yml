@@ -35,5 +35,5 @@ build:
     - script:
         name: run the tests
         code: |
-          gb test
+          TEST_DRIVER=mysql TEST_DATASOURCE="root:test@tcp($MARIADB_PORT_3306_TCP_ADDR:$MARIADB_PORT_3306_TCP_PORT)/dash3_test" gb test
 

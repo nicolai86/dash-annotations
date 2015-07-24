@@ -73,6 +73,11 @@ func generateRandomString(s int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), err
 }
 
+type userLoginStore interface {
+	UserFinderByUsername
+	UserTokenUpdater
+}
+
 // UserLogin tries to authenticate an existing user using username/ password combination
 func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) error {
 	var payload userLoginRequest
@@ -85,7 +90,7 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		return ErrMissingPassword
 	}
 
-	var loginStore = ctx.Value(UserStoreKey).(UserLoginStore)
+	var loginStore = ctx.Value(UserStoreKey).(userLoginStore)
 	var user, err = loginStore.FindUserByUsername(payload.Username)
 	if err != nil {
 		return ErrInvalidLogin

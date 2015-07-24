@@ -30,8 +30,8 @@ var (
 	ErrUnknownUser = errors.New("Invalid parameter: username. Unknown user")
 	// ErrTeamNameExists is returned when a team should be created, and the name is already taken
 	ErrTeamNameExists = errors.New("A team with this name already exists")
-	// ErrTeamNameMissing is returned when a team should be created and the name parameter is missing
-	ErrTeamNameMissing = errors.New("Missing parameter: name")
+	// ErrMissingTeamName is returned when a team should be created and the name parameter is missing
+	ErrMissingTeamName = errors.New("Missing parameter: name")
 )
 
 type teamListResponse struct {
@@ -62,7 +62,7 @@ func TeamCreate(ctx context.Context, w http.ResponseWriter, req *http.Request) e
 		Name: payload["name"].(string),
 	}
 	if team.Name == "" {
-		return ErrTeamNameMissing
+		return ErrMissingTeamName
 	}
 
 	var tx, err = db.Begin()
