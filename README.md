@@ -34,6 +34,8 @@ Assuming you're trying to get the annotations backend up and running for the fir
 
 ## Running on OS X
 
+The below file will setup a `launchd` configuration and launch the API using sqlite3 as storage engine - for a minimal dependency footprint.
+
 ``` xml
 cat <<EOF > $HOME/Library/LaunchAgents/rra.kapeli.annotations.plist
 <?xml version="1.0" encoding="UTF-8"?>
