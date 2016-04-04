@@ -56,7 +56,7 @@ cat <<EOF > $HOME/Library/LaunchAgents/rra.kapeli.annotations.plist
   <array>
     <string>$GOPATH/src/github.com/nicolai86/dash-annotations/bin/server</string>
     <string>--driver=sqlite3</string>
-    <string>--datasource="$HOME/Library/dash-annotations/dash.sqlite3"</string>
+    <string>--datasource=$HOME/Library/dash-annotations/dash.sqlite3</string>
     <string>--session.secret=1234123412341234</string>
     <string>--listen=127.0.0.1:54111</string>
   </array>
