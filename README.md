@@ -36,6 +36,12 @@ Assuming you're trying to get the annotations backend up and running for the fir
 
 The below file will setup a `launchd` configuration and launch the API using sqlite3 as storage engine - for a minimal dependency footprint.
 
+```
+sudo mkdir -p /var/run/rra.kapeli/
+sudo chown $(whoami) /var/run/rra.kapeli/
+$GOPATH/src/github.com/nicolai86/dash-annotations/bin/migrate --driver=sqlite3 --datasource="$HOME/Library/dash-annotations/dash.sqlite3"
+```
+
 ``` xml
 cat <<EOF > $HOME/Library/LaunchAgents/rra.kapeli.annotations.plist
 <?xml version="1.0" encoding="UTF-8"?>
@@ -57,7 +63,11 @@ cat <<EOF > $HOME/Library/LaunchAgents/rra.kapeli.annotations.plist
   <key>RunAtLoad</key>
   <true/>
   <key>WorkingDirectory</key>
-  <string>/usr/local/var</string>
+  <string>/var/run/rra.kapeli</string>
+  <key>StandardOutPath</key>
+  <string>/var/run/rra.kapeli/stdout</string>
+  <key>StandardErrorPath</key>
+  <string>/var/run/rra.kapeli/stderr</string>
 </dict>
 </plist>
 EOF
