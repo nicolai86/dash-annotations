@@ -8,8 +8,8 @@ CREATE TABLE "entries" (
   "identifier_id" int(10)  NOT NULL,
   "anchor" varchar(2000) NOT NULL,
   "user_id" int(10)  NOT NULL,
-  "public" tinyint(1) NOT NULL default false,
-  "removed_from_public" tinyint(1) NOT NULL default false,
+  "public" tinyint(1) NOT NULL DEFAULT false,
+  "removed_from_public" tinyint(1) NOT NULL DEFAULT false,
   "score" int(11) NOT NULL,
   "created_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
@@ -21,7 +21,7 @@ CREATE TABLE "entry_team" (
   "id" INTEGER primary key,
   "entry_id" int(10)  NOT NULL,
   "team_id" int(10)  NOT NULL,
-  "removed_from_team" tinyint(1) NOT NULL default false,
+  "removed_from_team" tinyint(1) NOT NULL DEFAULT false,
   "created_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   CONSTRAINT "entry_team_entry_id_foreign" FOREIGN KEY ("entry_id") REFERENCES "entries" ("id"),
@@ -38,7 +38,7 @@ CREATE TABLE "identifiers" (
   "page_path" longtext NOT NULL,
   "page_title" varchar(340) NOT NULL,
   "httrack_source" longtext NOT NULL,
-  "banned_from_public" tinyint(1) NOT NULL,
+  "banned_from_public" tinyint(1) NOT NULL DEFAULT false,
   "created_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
