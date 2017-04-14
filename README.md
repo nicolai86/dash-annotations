@@ -75,4 +75,6 @@ EOF
 
 ## TODO
 
-- forgotten password handling (request/ reset)
+- [ ] forgotten password handling (request/ reset)
+  - [ ] email sending
+    - [ ] DKIM
