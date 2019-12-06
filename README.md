@@ -18,12 +18,7 @@ Assuming you're trying to get the annotations backend up and running for the fir
 
 - build the project:
 
-      $ go build -o bin/migrate cmd/migrate/*.go
       $ go build -o bin/server cmd/server/*.go
-
-- run the migrations:
-
-      $ ./bin/migrate -datasource="root:@/dash3?parseTime=true" -driver=mysql
 
 - start the api:
 
