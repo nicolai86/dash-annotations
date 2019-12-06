@@ -43,7 +43,9 @@ func TestMain(m *testing.M) {
 		log.Panicf("failed to connect to database")
 	}
 	defer db.Close()
-	runMigrations(db, driver)
+	if err := runMigrations(db, driver); err != nil {
+		panic(err)
+	}
 
 	rootCtx = NewRootContext(db)
 	clearDatabase(db)

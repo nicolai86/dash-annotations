@@ -80,11 +80,18 @@ func runMigrations(db *sql.DB, driverName string) error {
 
 	s := bindata.Resource(
 		[]string{
-			"1_all-tables.up.sql",
-			"1_all-tables.down.sql",
+			"1_users.up.sql",
+			"2_teams.up.sql",
+			"3_team_user.up.sql",
+			"4_identifiers.up.sql",
+			"5_entries.up.sql",
+			"6_entry_team.up.sql",
+			"7_password_reminders.up.sql",
+			"8_votes.up.sql",
+			"9_indices.up.sql",
 		},
 		func(name string) ([]byte, error) {
-			return Asset(fmt.Sprintf("migrations/%s", name))
+			return Asset(fmt.Sprintf("migrations/%s/%s", driverName, name))
 		})
 
 	d, err := bindata.WithInstance(s)

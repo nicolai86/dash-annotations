@@ -1,6 +1,18 @@
 box:
   id: golang:1.13
 
+services:
+  - id: mariadb
+    username: $USERNAME
+    password: $PASSWORD
+    tag: latest
+
+    env:
+      MYSQL_USER_NAME:     "root"
+      MYSQL_ROOT_PASSWORD: "test"
+      MYSQL_DATABASE:      "dash3_test"
+
+
 build:
   steps:
     - script:
@@ -9,8 +21,15 @@ build:
           go build -o bin/server cmd/server/*.go
 
     - script:
-        name: run tests
+        name: run tests with sqlite3
         code: |
           export TEST_DRIVER=sqlite3
           export TEST_DATASOURCE="./dash.sqlite3"
-          go test ./...
+          go clean -testcache && go test ./...
+
+    - script:
+        name: run tests with mysql
+        code: |
+          export TEST_DRIVER=mysql
+          export TEST_DATASOURCE="root:test@tcp($MARIADB_PORT_3306_TCP_ADDR:$MARIADB_PORT_3306_TCP_PORT)/dash3_test"
+          go clean -testcache && go test ./...
