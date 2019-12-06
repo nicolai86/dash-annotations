@@ -36,12 +36,14 @@ func TestMain(m *testing.M) {
 		datasource = "root@/dash3_test"
 	}
 
+	log.Printf("test using driver %q with source %q\n", driver, datasource)
 	var err error
 	db, err = sql.Open(driver, datasource)
 	if err != nil {
 		log.Panicf("failed to connect to database")
 	}
 	defer db.Close()
+	runMigrations(db, driver)
 
 	rootCtx = NewRootContext(db)
 	clearDatabase(db)

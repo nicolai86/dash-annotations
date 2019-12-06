@@ -1,5 +1,5 @@
--- +migrate Up
-CREATE TABLE "entries" (
+
+CREATE TABLE entries (
   "id" INTEGER primary key,
   "title" varchar(340) NOT NULL,
   "body" longtext NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "entries" (
   CONSTRAINT "entries_user_id_foreign" FOREIGN KEY ("user_id") REFERENCES "users" ("id")
 );
 
-CREATE TABLE "entry_team" (
+CREATE TABLE entry_team (
   "id" INTEGER primary key,
   "entry_id" int(10)  NOT NULL,
   "team_id" int(10)  NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE "entry_team" (
   CONSTRAINT "entry_team_team_id_foreign" FOREIGN KEY ("team_id") REFERENCES "teams" ("id")
 );
 
-CREATE TABLE "identifiers" (
+CREATE TABLE identifiers (
   "id" INTEGER primary key,
   "docset_name" varchar(340) NOT NULL,
   "docset_filename" varchar(340) NOT NULL,
@@ -43,13 +43,13 @@ CREATE TABLE "identifiers" (
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
 
-CREATE TABLE "password_reminders" (
+CREATE TABLE password_reminders (
   "email" varchar(191) NOT NULL,
   "token" varchar(191) NOT NULL,
   "created_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
 
-CREATE TABLE "team_user" (
+CREATE TABLE team_user (
   "id" INTEGER primary key,
   "team_id" int(10)  NOT NULL,
   "user_id" int(10)  NOT NULL,
@@ -60,7 +60,7 @@ CREATE TABLE "team_user" (
   CONSTRAINT "team_user_user_id_foreign" FOREIGN KEY ("user_id") REFERENCES "users" ("id")
 );
 
-CREATE TABLE "teams" (
+CREATE TABLE teams (
   "id" INTEGER primary key,
   "name" varchar(191) NOT NULL,
   "access_key" varchar(500) NOT NULL DEFAULT '',
@@ -68,7 +68,7 @@ CREATE TABLE "teams" (
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
 
-CREATE TABLE "users" (
+CREATE TABLE users (
   "id" INTEGER primary key ,
   "username" varchar(191) NOT NULL,
   "email" varchar(300) DEFAULT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE "users" (
   "updated_at" timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
 );
 
-CREATE TABLE "votes" (
+CREATE TABLE votes (
   "id" INTEGER primary key,
   "type" tinyint(4) NOT NULL,
   "entry_id" int(10)  NOT NULL,
@@ -102,12 +102,3 @@ CREATE INDEX "entry_team_entry_team_entry_id_foreign" ON "entry_team" ("entry_id
 CREATE INDEX "entry_team_entry_team_team_id_foreign" ON "entry_team" ("team_id");
 CREATE INDEX "team_user_team_user_team_id_foreign" ON "team_user" ("team_id");
 CREATE INDEX "team_user_team_user_user_id_foreign" ON "team_user" ("user_id");
--- +migrate Down
-
-DROP TABLE votes;
-DROP TABLE team_user;
-DROP TABLE entry_team;
-DROP TABLE teams;
-DROP TABLE identifiers;
-DROP TABLE entries;
-DROP TABLE users;

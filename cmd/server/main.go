@@ -1,17 +1,21 @@
 package main
 
-//go:generate go-bindata -pkg main -o bindata.go templates/entries/
+//go:generate go-bindata -pkg main -o bindata.go templates/entries/ migrations/...
 
 import (
 	"database/sql"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/sqlite3"
+	bindata "github.com/golang-migrate/migrate/v4/source/go_bindata"
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/net/context"
 )
@@ -57,6 +61,40 @@ func (ca *ContextAdapter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func runMigrations(db *sql.DB, driverName string) error {
+	driver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
+	if err != nil {
+		return err
+	}
+
+	s := bindata.Resource(
+		[]string{
+			"1_all-tables.up.sql",
+			"1_all-tables.down.sql",
+		},
+		func(name string) ([]byte, error) {
+			return Asset(fmt.Sprintf("migrations/%s", name))
+		})
+
+	d, err := bindata.WithInstance(s)
+	if err != nil {
+		return err
+	}
+	m, err := migrate.NewWithInstance(
+		"go-bindata",
+		d,
+		"sqlite3",
+		driver)
+	if err != nil {
+		return err
+	}
+	err = m.Up()
+	if err == migrate.ErrNoChange {
+		return nil
+	}
+	return err
+}
+
 func main() {
 	var mux = http.DefaultServeMux
 
@@ -81,6 +119,10 @@ func main() {
 		log.Panicf("failed to connect to database")
 	}
 	defer db.Close()
+
+	if err := runMigrations(db, driverName); err != nil {
+		log.Panicf("failed to run migrations: %v\n", err)
+	}
 
 	var userStorage = &sqlUserStorage{db: db}
 	var rootContext = context.WithValue(NewRootContext(db), UserStoreKey, userStorage)
