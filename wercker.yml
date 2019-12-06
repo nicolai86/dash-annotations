@@ -9,7 +9,7 @@ build:
           go build -o bin/server cmd/server/*.go
 
     - script:
-        name: migrate the database
+        name: run tests
         code: |
           export TEST_DRIVER=sqlite3
           export TEST_DATASOURCE="./dash.sqlite3"
