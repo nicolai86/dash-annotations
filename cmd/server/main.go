@@ -14,6 +14,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	bindata "github.com/golang-migrate/migrate/v4/source/go_bindata"
 	_ "github.com/mattn/go-sqlite3"
@@ -62,7 +64,16 @@ func (ca *ContextAdapter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 }
 
 func runMigrations(db *sql.DB, driverName string) error {
-	driver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
+	var driver database.Driver
+	var err error
+	if driverName == "sqlite3" {
+		driver, err = sqlite3.WithInstance(db, &sqlite3.Config{})
+	} else if driverName == "mysql" {
+		driver, err = mysql.WithInstance(db, &mysql.Config{})
+	} else {
+		log.Panicf("unknown driver requested: %q", driverName)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -83,7 +94,7 @@ func runMigrations(db *sql.DB, driverName string) error {
 	m, err := migrate.NewWithInstance(
 		"go-bindata",
 		d,
-		"sqlite3",
+		driverName,
 		driver)
 	if err != nil {
 		return err
