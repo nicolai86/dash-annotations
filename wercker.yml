@@ -23,7 +23,7 @@ build:
           go get github.com/constabulary/gb/...
 
     - script:
-        name: build dash-annotations
+        name: build dash_annotations
         code: |
           gb build
 
@@ -36,4 +36,3 @@ build:
         name: run the tests
         code: |
           TEST_DRIVER=mysql TEST_DATASOURCE="root:test@tcp($MARIADB_PORT_3306_TCP_ADDR:$MARIADB_PORT_3306_TCP_PORT)/dash3_test" gb test
-
