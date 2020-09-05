@@ -35,7 +35,6 @@ The below file will setup a `launchd` configuration and launch the API using sql
 ```
 sudo mkdir -p /var/run/rra.kapeli/
 sudo chown $(whoami) /var/run/rra.kapeli/
-$GOPATH/src/github.com/nicolai86/dash-annotations/bin/migrate --driver=sqlite3 --datasource="$HOME/Library/dash-annotations/dash.sqlite3"
 ```
 
 ``` xml
