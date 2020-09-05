@@ -1,5 +1,5 @@
 box:
-  id: golang:1.13
+  id: golang:1.15
 
 services:
   - id: mariadb
