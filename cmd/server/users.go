@@ -119,11 +119,12 @@ func UserLogin(ctx context.Context, w http.ResponseWriter, req *http.Request) er
 		}
 	}
 
-	if encryptedSessionID, err := encrypt([]byte(sessionID)); err != nil {
+	encryptedSessionID, err := encrypt([]byte(sessionID))
+	if err != nil {
 		return err
-	} else {
-		ckie.Value = string(encryptedSessionID)
 	}
+	ckie.Value = string(encryptedSessionID)
+
 	ckie.MaxAge = 7200
 	ckie.Expires = time.Now().Add(7200 * time.Second)
 	ckie.Path = "/"

@@ -250,17 +250,17 @@ func Authenticated(h ContextHandler) ContextHandler {
 		if encryptedSessionID == "" {
 			return errors.New("Missing session cookie")
 		}
-
-		if sessionID, err := decrypt([]byte(encryptedSessionID)); err != nil {
+		sessionID, err := decrypt([]byte(encryptedSessionID))
+		if err != nil {
 			return err
-		} else {
-			if user, err := findUserByRememberToken(db, string(sessionID)); err != nil {
-				return ErrAuthenticationRequired
-			} else {
-				ctx = context.WithValue(ctx, UserKey, &user)
-				ctx = context.WithValue(ctx, UserStoreKey, &sqlUserStorage{db: db})
-			}
 		}
+
+		user, err := findUserByRememberToken(db, string(sessionID))
+		if err != nil {
+			return ErrAuthenticationRequired
+		}
+		ctx = context.WithValue(ctx, UserKey, &user)
+		ctx = context.WithValue(ctx, UserStoreKey, &sqlUserStorage{db: db})
 
 		return h.ServeHTTPContext(ctx, rw, req)
 	})
