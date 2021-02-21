@@ -1,9 +1,8 @@
 package main
 
-//go:generate go-bindata -pkg main -o bindata.go templates/entries/ migrations/...
-
 import (
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -21,6 +20,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/net/context"
 )
+
+//go:embed templates/entries/*
+//go:embed migrations/*
+var data embed.FS
 
 func logHandler(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +94,7 @@ func runMigrations(db *sql.DB, driverName string) error {
 			"9_indices.up.sql",
 		},
 		func(name string) ([]byte, error) {
-			return Asset(fmt.Sprintf("migrations/%s/%s", driverName, name))
+			return data.ReadFile(fmt.Sprintf("migrations/%s/%s", driverName, name))
 		})
 
 	d, err := bindata.WithInstance(s)

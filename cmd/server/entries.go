@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/microcosm-cc/bluemonday"
-	"golang.org/x/net/context"
 	"github.com/russross/blackfriday/v2"
+	"golang.org/x/net/context"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )
@@ -462,7 +462,8 @@ func decorateBodyRendered(entry dash.Entry, user dash.User, vote dash.Vote) stri
 			return isModerator
 		},
 	}
-	var htmlTemplate, _ = Asset("templates/entries/get.html")
+
+	var htmlTemplate, _ = data.ReadFile("templates/entries/get.html")
 	html := (*template.Template)(template.Must(template.New("get.html").Funcs(fns).Parse(string(htmlTemplate))))
 	if err != nil {
 		log.Panic(err)
