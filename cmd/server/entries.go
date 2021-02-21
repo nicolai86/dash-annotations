@@ -15,7 +15,7 @@ import (
 
 	"github.com/microcosm-cc/bluemonday"
 	"golang.org/x/net/context"
-	"gopkg.in/russross/blackfriday.v2"
+	"github.com/russross/blackfriday/v2"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )
