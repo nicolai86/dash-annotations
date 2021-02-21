@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,8 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )

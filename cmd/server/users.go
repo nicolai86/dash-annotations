@@ -1,14 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )

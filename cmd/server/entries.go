@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/russross/blackfriday/v2"
-	"golang.org/x/net/context"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )

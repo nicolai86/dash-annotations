@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"database/sql"
@@ -13,8 +14,6 @@ import (
 	"net/http"
 
 	"github.com/nicolai86/dash-annotations/dash"
-
-	"golang.org/x/net/context"
 )
 
 var (

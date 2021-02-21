@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -18,7 +19,6 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	bindata "github.com/golang-migrate/migrate/v4/source/go_bindata"
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/net/context"
 )
 
 //go:embed templates/entries/*

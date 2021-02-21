@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -8,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/nicolai86/dash-annotations/dash"
-
-	"golang.org/x/net/context"
 )
 
 func exec(query string, params ...interface{}) int {

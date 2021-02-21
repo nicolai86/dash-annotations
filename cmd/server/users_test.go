@@ -1,14 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"golang.org/x/net/context"
 
 	"github.com/nicolai86/dash-annotations/dash"
 )

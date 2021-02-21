@@ -1,12 +1,11 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
 	"testing"
-
-	"golang.org/x/net/context"
 
 	_ "github.com/go-sql-driver/mysql"
 )
