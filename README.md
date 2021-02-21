@@ -2,7 +2,8 @@
 
 [![wercker status](https://app.wercker.com/status/bff7a133f740428731b816db04a53265/m "wercker status")](https://app.wercker.com/project/bykey/bff7a133f740428731b816db04a53265)
 
-a Dash 3 - Dash 5 compatible annotations server written in go
+a Dash 3 - Dash 5 compatible annotations server written in go.
+See [the original](https://github.com/Kapeli/Dash-Annotations) annotation server in PHP.
 
 ## features
 
