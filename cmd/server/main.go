@@ -237,6 +237,6 @@ func main() {
 		handler: Authenticated(WithTeam(ContextHandlerFunc(TeamListMember))),
 	})
 
-	log.Printf("Listening on %q", listen)
+	log.Printf("Listening on %q\n", listen)
 	http.ListenAndServe(listen, logHandler(jsonHandler(mux)))
 }
