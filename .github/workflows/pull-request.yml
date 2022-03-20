@@ -20,6 +20,7 @@ jobs:
     - uses: actions/setup-go@v2
       with:
         go-version: '1.18'
+    - run: go vet ./...
     - run: go build -o bin/server cmd/server/*.go
     - name: run tests with sqlite3
       run: go clean -testcache && go test ./...
@@ -30,4 +31,4 @@ jobs:
       run: go clean -testcache && go test ./...
       env: 
         TEST_DRIVER: mysql
-        TEST_DATASOURCE: "root:test@tcp($MARIADB_PORT_3306_TCP_ADDR:$MARIADB_PORT_3306_TCP_PORT)/dash3_test"
+        TEST_DATASOURCE: "root:test@tcp(mysql:3306)/dash3_test"
