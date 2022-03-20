@@ -1,0 +1,35 @@
+name: Run tests
+
+on: [push, pull_request]
+
+jobs:  
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mariadb:latest
+        env:
+          MYSQL_USER_NAME:     "root"
+          MYSQL_ROOT_PASSWORD: "test"
+          MYSQL_DATABASE:      "dash3_test"
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        go-version: '1.18'
+    - run: go vet ./...
+    - run: go build -o bin/server cmd/server/*.go
+    - name: run tests with sqlite3
+      run: go clean -testcache && go test ./...
+      env: 
+        TEST_DRIVER: sqlite3
+        TEST_DATASOURCE: "./dash.sqlite3"
+    - name: run tests with mysql
+      run: go clean -testcache && go test ./...
+      env: 
+        TEST_DRIVER: mysql
+        TEST_DATASOURCE: "root:test@tcp(localhost:3306)/dash3_test"

@@ -1,6 +1,7 @@
 # Dash Annotations
 
-[![wercker status](https://app.wercker.com/status/bff7a133f740428731b816db04a53265/m "wercker status")](https://app.wercker.com/project/bykey/bff7a133f740428731b816db04a53265)
+[![Run tests](https://github.com/nicolai86/dash-annotations/actions/workflows/pull-request.yml/badge.svg)](https://github.com/nicolai86/dash-annotations/actions/workflows/pull-request.yml)
+
 
 a Dash 3 - Dash 6 compatible annotations server written in go.
 See [the original](https://github.com/Kapeli/Dash-Annotations) annotation server in PHP.
